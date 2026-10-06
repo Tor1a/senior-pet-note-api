@@ -1,0 +1,4 @@
+# gradlew 는 리눅스 컨테이너에서도 실행되므로 LF 를 유지한다
+gradlew text eol=lf
+*.bat text eol=crlf
+*.jar binary

@@ -1,0 +1,14 @@
+# 자동 테스트 전용 설정. docker-compose 의 Postgres 안에 있는 seniorpet_test DB 를 쓴다.
+spring:
+  datasource:
+    url: ${TEST_DB_URL:jdbc:postgresql://localhost:5433/seniorpet_test}
+    username: ${TEST_DB_USERNAME:seniorpet}
+    password: ${TEST_DB_PASSWORD:${POSTGRES_PASSWORD:}}
+
+app:
+  jwt:
+    # 테스트 전용 키(운영에서 절대 쓰지 말 것)
+    secret: test-only-secret-key-0123456789-abcdefghijklmnopqrstuvwxyz
+  photo:
+    # 테스트용 사진 폴더(임시 디렉터리)
+    dir: ${java.io.tmpdir}/seniorpet-test-photos

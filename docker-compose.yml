@@ -1,0 +1,28 @@
+# 시니어펫 노트 개발용 인프라 (운영용 아님)
+# - PostgreSQL 17, 호스트 포트 5433 (이 PC의 5432 는 다른 컨테이너가 사용 중)
+# - 비밀번호는 같은 폴더의 .env 의 POSTGRES_PASSWORD 로 받는다 (.env.example 참고)
+# 실행: docker compose up -d   /   중지: docker compose down   (데이터까지 삭제: down -v)
+name: senior-pet-note
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: seniorpet
+      POSTGRES_USER: seniorpet
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?.env 에 POSTGRES_PASSWORD 를 설정하세요}
+      TZ: Asia/Seoul
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # 최초 생성 시 테스트용 DB(seniorpet_test)를 함께 만든다
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U seniorpet -d seniorpet"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pgdata:

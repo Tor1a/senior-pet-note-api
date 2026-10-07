@@ -25,8 +25,11 @@ senior-pet-note-api/
    ├─ recorddate/ 기록 날짜(새벽 4시 규칙) 계산 — 이 한 곳에서만 계산
    ├─ medication/ 투약 일정, medlog/ 투약 체크, dailylog/ 일일 기록
    ├─ today/     "오늘" 화면 조회 + 제안값 계산(SuggestionService)
+   ├─ reminder/  투약 알림 규칙 API + 1분 주기 발송 작업(ReminderDispatcher, ReminderScheduler)
+   ├─ push/      기기 토큰 API + 푸시 발송기(PushSender: FCM / 로그)
    └─ event/     지표 이벤트
-   src/main/resources/db/migration/V1__init_schema.sql   전체 스키마
+   src/main/resources/db/migration/V1__init_schema.sql   초기 스키마
+   src/main/resources/db/migration/V2__medication_reminders_and_device_tokens.sql   투약 알림·기기 토큰
 ```
 
 ## 실행 방법
@@ -104,7 +107,13 @@ IntelliJ 에서는 실행 구성의 Environment variables 에 `DB_PASSWORD`, `JW
 | `CORS_ALLOWED_ORIGINS` | | `http://localhost:5173,http://localhost:4173` | 허용할 웹 주소(쉼표 구분). 5173 = vite dev, 4173 = vite preview |
 | `PORT` | | `8080` | 서버 포트 |
 | `PHOTO_DIR` | | `./data/photos` | 반려동물 사진 저장 폴더(`app.photo.dir`) |
+| `FCM_ENABLED` | | `false` | `true` 면 실제 FCM 으로 투약 알림 발송. `false` 면 로그 발송기(실제 발송 없이 로그만) |
+| `FCM_CREDENTIALS_BASE64` | `FCM_ENABLED=true` 일 때 필수 | 빈 값 | Firebase 서비스 계정 JSON 을 base64 로 인코딩한 값(예: `base64 -i key.json`). **환경변수로만** 넣는다(키 파일을 저장소·서버 폴더에 두지 않음). 비었거나 해석할 수 없으면 서버가 시작되지 않는다. 프로젝트 id 는 이 JSON 에서 읽는다 |
+| `REMINDER_SCHEDULER_ENABLED` | | `true` | 1분 주기 알림 발송 스케줄러 on/off. 자동 테스트는 꺼져 있다 |
 | `TEST_DB_URL` / `TEST_DB_USERNAME` / `TEST_DB_PASSWORD` | 테스트 시 | `localhost:5433/seniorpet_test` / `seniorpet` / `$POSTGRES_PASSWORD` | 자동 테스트용 DB |
+
+- 늦게라도 보내는 최대 지연은 `application.yml` 의 `app.reminder.catch-up`(기본 `PT10M`, 환경변수 없음).
+- Firebase 프로젝트 생성·서비스 계정 키 발급·운영 환경변수 등록은 **대표님 작업**(외부 서비스 연결, 승인 필요). 그 전까지는 `FCM_ENABLED=false` 로 개발·테스트한다.
 
 `docker-compose.yml` 은 `.env` 의 `POSTGRES_PASSWORD` 를 읽는다. `.env` 는 비밀값이므로 커밋·공유 금지(`.gitignore` 에 등록됨). 커밋 대상은 `.env.example` 뿐이다.
 
@@ -165,6 +174,41 @@ IntelliJ 에서는 실행 구성의 Environment variables 에 `DB_PASSWORD`, `JW
   symptomsNone=true 이면 symptoms 는 비어야 함, symptomOther 는 `other` 선택 시에만·30자 이하, memo 200자 이하. 같은 날 다시 PUT 하면 전체 교체(upsert).
 - 이벤트 props 는 JSON 객체만, 직렬화 1000바이트 이하. 개인정보 금지.
 
+### 투약 알림·기기 토큰 API — 계약서: `docs/api-reminders.md` (클라이언트와 합의 대상)
+
+모든 API 로그인 필요. 남의 리소스·없는 리소스는 404 `NOT_FOUND`. 새 오류 코드는 없다.
+
+| 메서드 | 경로 | 요청 | 성공 응답 |
+|--------|------|------|-----------|
+| GET | `/api/medications/{id}/reminder` | - | 200 `Reminder` (설정 전이면 기본값 `enabled:false, repeat:"daily"`, `startDate`=현재 기록 날짜, `updatedAt:null`). 비활성·남의 약 404 |
+| PUT | `/api/medications/{id}/reminder` | `{"enabled", "repeat":"daily"\|"weekly"\|"interval", "daysOfWeek"?:["mon","wed"], "intervalDays"?(2~30), "startDate"?:"YYYY-MM-DD", "endDate"?:"YYYY-MM-DD"}` | 200 `Reminder` (upsert, 전체 교체) |
+| PUT | `/api/devices` | `{"token"(1~4096자, 공백 불가), "platform":"android"\|"ios"\|"web"}` | 200 `Device` (같은 토큰 재등록 = last_seen_at 갱신, 다른 사용자 토큰이면 현재 사용자로 이전) |
+| DELETE | `/api/devices/{id}` | - | 204 (남의 것·없는 것 404) |
+
+- `Reminder` = `{medicationId, enabled, repeat, daysOfWeek:["mon"], intervalDays, startDate, endDate, times:["08:00"], nextFireAt, updatedAt}`
+  - `times` 는 약의 투약 시각(읽기 전용, 수정은 기존 `PUT /api/medications/{id}`). 알림 전용 시각은 없다.
+  - `nextFireAt` = 지금 이후 첫 발송 예정 시각(ISO-8601 UTC). `enabled:false` 이거나 종료일이 지났으면 `null`. 최대 400일 앞까지만 계산
+- `Device` = `{id, platform, createdAt, lastSeenAt}` (토큰 값은 응답에 다시 내보내지 않음)
+- 검증(모두 400 `VALIDATION_ERROR`): `repeat`·`enabled` 필수. `weekly` 는 `daysOfWeek` 1~7개(mon~sun, 중복 불가, 응답은 요일 순 정렬), 다른 repeat 에서 값이 든 `daysOfWeek` 를 보내면 400(빈 배열·생략은 허용).
+  `interval` 은 `intervalDays` 필수(2~30), 다른 repeat 에서 보내면 400. `startDate` 생략 시 현재 기록 날짜(과거 허용), `endDate` < `startDate` 면 400.
+- 기기 토큰은 사용자당 최대 10개. 11번째 등록 시 `last_seen_at` 이 가장 오래된 토큰을 지우고 등록(오류 아님).
+- **반복 규칙 판정 기준은 기록 날짜**(새벽 4시 규칙). 회차 (기록 날짜 D, 시각 t) 의 발송 시각은 t ≥ 04:00 이면 D 의 t, t < 04:00 이면 D+1 의 t(서울).
+  계산은 `RecordDateCalculator.slotInstant` 한 곳에서만 한다. 반복 규칙은 알림에만 적용되고 "오늘" 화면은 그대로다(`docs/api-today.md` 변경 없음).
+- 클라이언트는 로그아웃 직전에 `DELETE /api/devices/{id}` 를 호출해야 한다(서버에 로그아웃 API 없음).
+
+### 투약 알림 발송 (구현됨: `reminder/ReminderDispatcher`, `push/`)
+
+- `ReminderScheduler` 가 매 분 0초(서울) `ReminderDispatcher.dispatchDue()` 를 부른다. 스케줄러 스레드는 1개(순차 처리).
+- 지금 기준 **(now − 10분, now]** 안에 발송 시각이 있는 회차만 보낸다(서버 재시작·지연 시 10분까지 늦게라도 보냄). 알림을 켜거나 약을 수정한 시각보다 이전 회차는 보내지 않는다(소급 발송 방지).
+- 중복 방지: `reminder_dispatches` 에 `insert ... on conflict (reminder_dispatches_once_per_slot) do nothing` 으로 회차를 **선점**한 경우에만 보낸다. 여러 인스턴스가 동시에 돌아도 회차당 최대 1회(분산 락 불필요).
+- 최대 1회(at-most-once): 선점을 커밋한 뒤 FCM 을 호출한다. 호출 중 서버가 죽으면 그 회차는 `claimed` 로 남고 재발송하지 않는다. 일시 오류도 재시도하지 않는다(`failed`).
+- 이미 투약 체크한 회차는 `skipped_taken`, 기기가 없으면 `no_device` 로 기록만 남긴다. FCM 호출은 DB 트랜잭션 밖에서 한다.
+- FCM 이 `UNREGISTERED`·`SENDER_ID_MISMATCH` 를 돌려주면 그 토큰을 `device_tokens` 에서 지운다. `INVALID_ARGUMENT`(메시지 문제일 수도 있음)를 포함한 그 밖의 오류는 토큰 유지(`INVALID_ARGUMENT` 는 ERROR 로그).
+- 소급 방지 기준(규칙·약 수정 시각)은 UPDATE 트리거의 DB `now()` 다. 앱 서버와 DB 시계가 어긋나면 경계 회차 판정이 달라질 수 있다.
+- `app.reminder.catch-up` 은 24시간 미만이어야 한다(넘으면 서버 시작 실패). 푸시 본문은 반려동물 10자·약 20자·용량 10자로 말줄임.
+- 발송기: `FCM_ENABLED=true` → `FcmPushSender`(firebase-admin, `sendEachForMulticast`), 기본값 → `LoggingPushSender`(토큰 앞 8자만 로그). 테스트 → `FakePushSender`.
+- 푸시 문구: 제목 "투약 시간이에요", 본문 "{반려동물} · {약} {용량}", `data` = `type, medicationId, petId, recordDate, scheduledTime` (상세: `docs/api-reminders.md` 4절).
+
 ### 오류 응답
 
 모든 오류는 `{"code": "...", "message": "..."}` 형식이다. `code` 로 분기하고, `message` 는 화면 표시용 한국어 문장이다(문구는 바뀔 수 있음).
@@ -207,16 +251,26 @@ Supabase RLS 가 없어졌으므로 **API 계층이 유일한 방어선**이다.
 6. **새 공개(비로그인) API 는 `SecurityConfig` 에 명시적으로 추가해야만 열린다.** 기본값은 "로그인 필요".
 7. **테스트 필수:** 리소스마다 "다른 사용자의 id 로 접근하면 404, 목록에 안 보임" 테스트를 넣는다 (`PetOwnershipTest` 참고).
 8. 탈퇴(users 삭제)한 사용자의 토큰은 보안 필터에서 거부된다. 데이터는 `on delete cascade` 로 함께 삭제된다.
+9. **예외: 시스템 작업(투약 알림 발송).** 발송은 사용자 요청이 아니라 전 사용자 대상 작업이라 1~3번을 그대로 적용할 수 없다.
+   - user_id 조건 없는 쿼리는 `reminder/ReminderDispatchQueries` 한 곳에만 둔다. 이 빈은 **`ReminderDispatcher` 에서만 주입한다**(컨트롤러·사용자 서비스 주입 금지).
+     발송기가 사용자 데이터를 더 다룰 때는 userId 를 받는 기존 메서드(`MedLogRepository.exists...ByUserId...`, `DeviceTokenService.tokensOf/removeInvalid(userId, ...)`)를 쓴다.
+   - 기기 토큰 이전(다른 사용자에게 등록된 같은 토큰 삭제)도 이 예외다. `DeviceTokenRepository.deleteByTokenAndUserIdNot` 은 `DeviceTokenService.register` 에서만 부르고, 응답에 다른 사용자 존재 여부를 드러내지 않는다(항상 200).
+   - 확인 방법: `grep -rnE "ReminderDispatchQueries [a-z]" src/main` (필드·생성자 파라미터 선언) 결과가 `ReminderDispatcher` 뿐이어야 한다.
 
 ## 데이터베이스
 
 - 스키마: `src/main/resources/db/migration/V1__init_schema.sql` — users, pets, medications, med_logs, daily_logs, push_subscriptions, events
+- `V2__medication_reminders_and_device_tokens.sql` — 투약 알림
+  - `medication_reminders`: 약별 알림 규칙(약 1개당 1행, `unique (medication_id)`). `repeat_type`·`days_of_week smallint[]`(ISO 1=월…7=일)·`interval_days` 조합을 CHECK 로 강제, `end_date >= start_date`
+  - `device_tokens`: FCM 토큰(`token` 전역 unique, platform android|ios|web, `last_seen_at`)
+  - `reminder_dispatches`: 발송 기록(중복 방지 겸 감사 로그). `unique (user_id, medication_id, record_date, scheduled_time)` = `med_logs_once_per_slot` 과 같은 키. 보관 기간 무기한(MVP)
+  - V1 의 `push_subscriptions`(웹 푸시 VAPID용)는 쓰지 않지만 그대로 둔다(후속 마이그레이션에서 삭제 검토)
 - 옛 Supabase 스키마에서 바뀐 점: `auth.users` → 자체 `users`(id, email unique, password_hash, created_at), `default auth.uid()`·RLS·storage 정책 제거.
   디자이너 반영 필드(`symptoms_none`, `water_level`/`water_ml`, `record_date`/`taken_at`)와 CHECK 제약, 새벽 4시 규칙 COMMENT 는 그대로다.
 - **스키마 변경은 새 파일 `V2__설명.sql` 로만 한다.** 이미 적용된 V1 을 고치면 Flyway 가 체크섬 오류로 서버를 멈춘다.
 - Hibernate 는 `ddl-auto: validate` (엔티티와 테이블이 맞는지 검사만 함).
 - 기록 날짜 규칙: Asia/Seoul 기준 00:00~03:59 체크는 전날 `record_date`. 실제 시각은 `taken_at`. **서버가 계산한다**(`RecordDateCalculator`, 계약서 0-2).
-- "오늘" 화면 API 는 V1 스키마 그대로 동작해서 V2 마이그레이션은 추가하지 않았다.
+- "오늘" 화면 API 는 V1 스키마 그대로 동작한다(V2 는 투약 알림 테이블만 추가, 기존 테이블 변경 없음).
 - DB 직접 접속: `docker exec -it senior-pet-note-postgres-1 psql -U seniorpet -d seniorpet`
 
 ## 사진 파일 저장 (구현됨: `pet/photo/`)
@@ -234,12 +288,20 @@ Supabase RLS 가 없어졌으므로 **API 계층이 유일한 방어선**이다.
 
 ## 테스트
 
-- 위치: `src/test/java/...` (총 46개) — `AuthApiTest`(회원가입→로그인→/api/me, 잘못된·위조 토큰 401, 중복 이메일 409, 400 검증, CORS),
+- 위치: `src/test/java/...` (총 113개) — `AuthApiTest`(회원가입→로그인→/api/me, 잘못된·위조 토큰 401, 중복 이메일 409, 400 검증, CORS),
   `PetOwnershipTest`(다른 사용자 pet 404, 목록 격리, 본문 userId 무시, 1마리 제한 409),
   `PetPhotoApiTest`(사진 업로드·조회·교체 시 이전 파일 삭제·삭제, 형식 오류 400, 5MB 초과 413, pet 수정),
   `TodayApiTest`(새벽 4시 경계 03:59/04:00 에서 today·med-logs·daily-logs 가 같은 날짜, 409, 일정 밖 시각 400, upsert, INVALID_RECORD_DATE, 증상 규칙, 제안값·직전 체중),
   `TodayOwnershipTest`(다른 사용자의 pet/medication/med-log/daily-log/photo 404), `EventApiTest`(허용 이름 202, 그 외 400),
-  단위 테스트 `SuggestionServiceTest`(빈 데이터, 일부 항목, 1.5→2, 2.5→3, 7일 범위 밖·오늘 제외), `RecordDateCalculatorTest`
+  단위 테스트 `SuggestionServiceTest`(빈 데이터, 일부 항목, 1.5→2, 2.5→3, 7일 범위 밖·오늘 제외), `RecordDateCalculatorTest`(새벽 4시 규칙 + 알림 발송 시각 `slotInstant`·분 단위 회차)
+- 투약 알림: `ReminderApiTest`(설정 전 기본값, weekly 정렬·nextFireAt, 전체 교체 행 1개, 검증 400, 비활성 약 404, 약 시각 변경 반영),
+  `DeviceApiTest`(등록, 재등록 시 행 1개·lastSeenAt 갱신, 다른 사용자 토큰 이전, 11번째 등록 시 가장 오래된 것 삭제, 검증 400, 삭제),
+  `ReminderOwnershipTest`(다른 사용자의 약 알림·기기 404, 본문 userId 무시), `ReminderSchemaTest`(V2 CHECK·유니크 제약),
+  `ReminderDispatchTest`(정시 발송·문구·data, 중복 호출·동시 호출 1건, skipped_taken, no_device, 02:00 회차, 규칙 불일치·꺼짐·비활성·시작 전·종료 후, 지연 9분 발송·10분/11분 버림, 소급 방지, 무효 토큰 삭제, 전체 실패, 예외 격리),
+  단위 테스트 `ReminderRuleTest`(daily/weekly/interval, 시작·종료일, 02:00 회차 요일, nextFireAt), `FcmPushSenderTest`(오류 코드 매핑, 자격증명 오류, 가짜 키로 초기화), `PushSenderConfigTest`(FCM_ENABLED 에 따른 발송기 선택·시작 실패)
+- 푸시: `ApiTestSupport` 가 `FakePushSender` 를 `@Primary PushSender` 로 등록한다(실제 FCM 호출 0회). 테스트 프로필은 스케줄러를 끄고(`app.reminder.scheduler-enabled: false`) `dispatchDue()` 를 직접 부른다.
+  발송 작업은 전 사용자의 규칙을 훑으므로 알림 테스트는 `newDisposableUserToken()` 으로 만든 사용자를 테스트 끝에 삭제한다. 단언은 자기 기기 토큰·medicationId 로 거른다.
+  FCM 테스트의 서비스 계정은 실행마다 새로 만드는 가짜 RSA 키다(실제 키·네트워크 없음).
 - 시각 고정: `ApiTestSupport` 가 `MutableClock` 을 `@Primary Clock` 으로 등록한다. `setSeoulTime(2026, 10, 6, 3, 59)` 처럼 쓰고, 테스트가 끝나면 실제 시각으로 돌아간다.
 - 사진 테스트 파일은 `${java.io.tmpdir}/seniorpet-test-photos` 에 쓴다.
 - 실제 PostgreSQL 이 필요하다: `docker compose up -d` 로 띄운 DB 안의 **`seniorpet_test`** DB 를 쓴다(개발 DB 와 분리).
@@ -249,5 +311,6 @@ Supabase RLS 가 없어졌으므로 **API 계층이 유일한 방어선**이다.
 ## 문제 해결
 
 - `JWT_SECRET 이 없거나 너무 짧습니다` → `.env` 를 불러왔는지(`set -a; . ./.env; set +a`), 32바이트 이상인지 확인.
+- `FCM_ENABLED=true 이지만 ... FCM_CREDENTIALS_BASE64 가 비어 있습니다` / `... 해석할 수 없습니다` → 서비스 계정 JSON 파일 전체를 base64 로 인코딩해 넣었는지 확인(`base64 -i key.json | tr -d '\n'`). FCM 없이 실행하려면 `FCM_ENABLED` 를 빼거나 `false`.
 - 테스트가 DB 연결 실패 → `docker compose ps` 로 DB 가 healthy 인지, Docker 빌드 시 `--network senior-pet-note_default` 를 붙였는지 확인.
 - Windows Git Bash 에서 curl 로 한글 JSON 을 `-d '...'` 로 보내면 인코딩이 깨져 400 이 날 수 있다. UTF-8 파일로 저장해 `--data-binary @파일.json` 으로 보낸다(서버 문제 아님).

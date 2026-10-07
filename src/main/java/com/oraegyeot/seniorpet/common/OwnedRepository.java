@@ -7,13 +7,15 @@ import org.springframework.data.repository.NoRepositoryBean;
 import org.springframework.data.repository.Repository;
 
 /**
- * 사용자 소유 리소스(pets, medications, med_logs, daily_logs, push_subscriptions, events) 저장소의 공통 부모.
+ * 사용자 소유 리소스(pets, medications, med_logs, daily_logs, push_subscriptions, events,
+ * medication_reminders, device_tokens) 저장소의 공통 부모.
  *
  * RLS 가 없으므로 "본인 데이터만"은 이 인터페이스로 보장한다.
  * - JpaRepository 를 상속하지 않는다: findById / findAll / deleteById 처럼
  *   user_id 조건이 없는 메서드가 아예 노출되지 않게 하기 위함이다.
  * - 조회·수정·삭제는 반드시 userId 를 함께 받는 메서드만 쓴다.
  * - 하위 인터페이스에 메서드를 추가할 때도 이름에 "AndUserId" / "ByUserId" 가 들어가야 한다.
+ * - 예외(README 보안 규칙 9번): 알림 발송 작업의 전 사용자 대상 쿼리는 reminder/ReminderDispatchQueries 한 곳에만 둔다.
  *
  * @param <T>  엔티티 타입 (user_id 컬럼을 가진 엔티티)
  * @param <ID> 기본키 타입

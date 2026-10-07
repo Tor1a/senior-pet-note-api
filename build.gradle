@@ -20,6 +20,12 @@ repositories {
 
 ext {
     jjwtVersion = '0.12.6'
+    firebaseAdminVersion = '9.11.0'
+    // firebase-admin 의 FCM 전송(ApacheHttp2Transport)이 요구하는 버전. Spring Boot 관리 버전(5.5)으로 내려가지 않게 고정한다.
+    // 이 프로젝트에서 httpclient5 를 쓰는 곳은 firebase-admin 뿐이다(./gradlew dependencies 로 확인).
+    // netty 는 Spring Boot 관리 버전(4.1.127)으로 내려가 쓴다(firebase-admin 이 요구하는 4.2.x 가 아님). 현재 FCM 전송 경로는 httpclient5 라 영향 없음.
+    set('httpclient5.version', '5.6.4')
+    set('httpcore5.version', '5.4.3')
 }
 
 dependencies {
@@ -35,6 +41,15 @@ dependencies {
     implementation "io.jsonwebtoken:jjwt-api:${jjwtVersion}"
     runtimeOnly "io.jsonwebtoken:jjwt-impl:${jjwtVersion}"
     runtimeOnly "io.jsonwebtoken:jjwt-jackson:${jjwtVersion}"
+
+    // FCM 푸시 발송(투약 알림). 메시징만 쓰므로 Firestore·Cloud Storage 클라이언트(grpc 등 대형 전이 의존성)는 뺀다
+    implementation("com.google.firebase:firebase-admin:${firebaseAdminVersion}") {
+        exclude group: 'com.google.cloud', module: 'google-cloud-firestore'
+        exclude group: 'com.google.cloud', module: 'google-cloud-storage'
+    }
+    // FirebaseOptions 가 기본 JSON 파서로 쓰는데 위에서 뺀 Storage·Firestore 를 통해서만 들어오므로 직접 넣는다.
+    // 버전은 firebase-admin 이 쓰는 google-http-client(2.2.0)와 맞춘다.
+    implementation 'com.google.http-client:google-http-client-jackson2:2.2.0'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.security:spring-security-test'

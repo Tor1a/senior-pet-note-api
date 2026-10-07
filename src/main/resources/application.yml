@@ -11,6 +11,12 @@ server:
 spring:
   application:
     name: senior-pet-backend
+  task:
+    scheduling:
+      shutdown:
+        # 종료 시 진행 중인 발송 작업이 끝나길 기다린다
+        await-termination: true
+        await-termination-period: 30s
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5433/seniorpet}
     username: ${DB_USERNAME:seniorpet}
@@ -48,3 +54,15 @@ app:
   photo:
     # 사진 저장 폴더(로컬 디스크). 경로 규칙 <user_id>/<랜덤파일명>.<확장자>. 커밋 금지(.gitignore 의 data/)
     dir: ${PHOTO_DIR:./data/photos}
+  push:
+    fcm:
+      # true 면 실제 FCM 으로 발송, false(기본)면 로그 발송기(실제 발송 없음). README.md "환경변수"
+      enabled: ${FCM_ENABLED:false}
+      # 서비스 계정 JSON 을 base64 로 인코딩한 값. 환경변수로만 받는다(파일·저장소 커밋 금지).
+      # FCM_ENABLED=true 인데 비었거나 해석할 수 없으면 서버가 시작되지 않는다.
+      credentials-base64: ${FCM_CREDENTIALS_BASE64:}
+  reminder:
+    # 1분 주기 투약 알림 발송 스케줄러 on/off. 테스트 프로필은 false
+    scheduler-enabled: ${REMINDER_SCHEDULER_ENABLED:true}
+    # 발송 시각이 지난 회차를 늦게라도 보내는 최대 지연(서버 재시작·지연 대비). 그보다 오래된 회차는 버린다
+    catch-up: PT10M

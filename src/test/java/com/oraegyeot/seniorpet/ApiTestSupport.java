@@ -1,13 +1,16 @@
 package com.oraegyeot.seniorpet;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.oraegyeot.seniorpet.push.FakePushSender;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -21,6 +24,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -30,6 +34,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  * 실제 PostgreSQL(seniorpet_test DB)에 붙는다 → README.md "테스트" 참고.
  * 테스트끼리 데이터가 섞이지 않도록 매번 무작위 이메일로 새 사용자를 만든다.
  * 시각은 MutableClock(@Primary Clock)으로 고정할 수 있고, 테스트가 끝나면 실제 시각으로 돌린다.
+ * 푸시는 FakePushSender(@Primary PushSender)로 받는다(실제 FCM 호출 없음). 테스트마다 기록을 비운다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -47,6 +52,12 @@ public abstract class ApiTestSupport {
         MutableClock testClock() {
             return new MutableClock();
         }
+
+        @Bean
+        @Primary
+        FakePushSender fakePushSender() {
+            return new FakePushSender();
+        }
     }
 
     @Autowired
@@ -58,9 +69,23 @@ public abstract class ApiTestSupport {
     @Autowired
     protected MutableClock clock;
 
+    @Autowired
+    protected FakePushSender pushSender;
+
+    @Autowired
+    protected JdbcClient jdbc;
+
+    /** newDisposableUserToken() 으로 만든 사용자. 테스트가 끝나면 삭제한다(데이터는 on delete cascade). */
+    private final List<UUID> disposableUsers = new ArrayList<>();
+
     @AfterEach
     void resetClock() {
         clock.reset();
+        pushSender.reset();
+        for (UUID id : disposableUsers) {
+            jdbc.sql("delete from users where id = :id").param("id", id).update();
+        }
+        disposableUsers.clear();
     }
 
     /** 서울 현지 시각으로 시계를 고정한다. 예: setSeoulTime(2026, 10, 6, 3, 59) */
@@ -93,6 +118,21 @@ public abstract class ApiTestSupport {
         return signup(randomEmail(), PASSWORD).get("accessToken").asText();
     }
 
+    /**
+     * 테스트가 끝나면 삭제되는 사용자를 만든다. 알림 발송 작업은 전 사용자의 규칙을 훑으므로
+     * 알림 규칙을 만드는 테스트는 이걸 써서 다음 실행에 데이터가 쌓이지 않게 한다.
+     */
+    protected String newDisposableUserToken() throws Exception {
+        String token = newUserToken();
+        disposableUsers.add(userIdOf(token));
+        return token;
+    }
+
+    /** GET /api/me 로 사용자 id 를 얻는다. */
+    protected UUID userIdOf(String token) throws Exception {
+        return UUID.fromString(call(get("/api/me"), token, 200).get("id").asText());
+    }
+
     protected static String bearer(String token) {
         return "Bearer " + token;
     }
@@ -115,6 +155,17 @@ public abstract class ApiTestSupport {
     protected String createMedication(String token, String petId, List<String> times) throws Exception {
         return call(jsonPost("/api/pets/" + petId + "/medications",
                 Map.of("name", "아조딜", "doseText", "1캡슐", "times", times)), token, 201)
+                .get("id").asText();
+    }
+
+    /** 알림 규칙을 설정(PUT)하고 응답 JSON 을 돌려준다. */
+    protected JsonNode putReminder(String token, String medicationId, Map<String, ?> body) throws Exception {
+        return call(jsonPut("/api/medications/" + medicationId + "/reminder", body), token, 200);
+    }
+
+    /** 기기 토큰을 등록하고 기기 id 를 돌려준다. */
+    protected String registerDevice(String token, String deviceToken, String platform) throws Exception {
+        return call(jsonPut("/api/devices", Map.of("token", deviceToken, "platform", platform)), token, 200)
                 .get("id").asText();
     }
 }

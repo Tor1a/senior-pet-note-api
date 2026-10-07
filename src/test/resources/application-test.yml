@@ -12,3 +12,10 @@ app:
   photo:
     # 테스트용 사진 폴더(임시 디렉터리)
     dir: ${java.io.tmpdir}/seniorpet-test-photos
+  push:
+    fcm:
+      # 테스트는 FakePushSender(@Primary)로 검증한다. 실제 FCM 호출 없음
+      enabled: false
+  reminder:
+    # 실제 시각의 tick 이 MutableClock 과 섞이지 않게 끈다. 테스트는 ReminderDispatcher.dispatchDue() 를 직접 부른다
+    scheduler-enabled: false

@@ -1,4 +1,6 @@
-# 시니어펫 노트 — 백엔드 (Java / Spring Boot)
+# 시니어펫 노트 — 백엔드 API (Java / Spring Boot)
+
+> 웹·앱 클라이언트는 별도 저장소 `senior-pet-note-client` 에 있다. 저장소 분리 근거: 회사 문서 `docs/decisions/2026-10-07-저장소-분리.md`
 
 - 작성: developer(백엔드) / 2026-10-06
 - 근거: `docs/decisions/2026-10-06-기술-스택-변경.md`, `docs/decisions/2026-10-06-MVP-세부-결정.md`
@@ -7,29 +9,29 @@
 ## 폴더 구성
 
 ```
-senior-pet-note/
+senior-pet-note-api/
 ├─ docker-compose.yml          개발용 PostgreSQL 17 (호스트 포트 5433)
 ├─ .env.example                환경변수 예시 (.env 로 복사해서 사용, .env 는 커밋 금지)
 ├─ docker/postgres-init/       DB 최초 생성 시 테스트용 DB(seniorpet_test) 생성
 ├─ _archive/supabase/          옛 Supabase 스키마 (보관용, 사용 안 함)
-└─ backend/
-   ├─ build.gradle, gradlew    Gradle wrapper (PC 에 Gradle 설치 불필요)
-   └─ src/main/java/com/oraegyeot/seniorpet/
-      ├─ common/    공통 오류 형식(ApiError/ApiException/GlobalExceptionHandler), OwnedRepository, 헬스체크
-      ├─ security/  JWT 발급·검증, 보안 필터, CORS, @CurrentUserId
-      ├─ user/      users 엔티티·저장소
-      ├─ auth/      회원가입·로그인·내 정보 API
-      ├─ pet/       반려동물 API (소유자 범위 패턴의 기준 예시), pet/photo/ 사진 업로드·조회
-      ├─ recorddate/ 기록 날짜(새벽 4시 규칙) 계산 — 이 한 곳에서만 계산
-      ├─ medication/ 투약 일정, medlog/ 투약 체크, dailylog/ 일일 기록
-      ├─ today/     "오늘" 화면 조회 + 제안값 계산(SuggestionService)
-      └─ event/     지표 이벤트
-      src/main/resources/db/migration/V1__init_schema.sql   전체 스키마
+├─ docs/                       API 명세 (클라이언트 저장소가 참고하는 기준)
+├─ build.gradle, gradlew       Gradle wrapper (PC 에 Gradle 설치 불필요)
+└─ src/main/java/com/oraegyeot/seniorpet/
+   ├─ common/    공통 오류 형식(ApiError/ApiException/GlobalExceptionHandler), OwnedRepository, 헬스체크
+   ├─ security/  JWT 발급·검증, 보안 필터, CORS, @CurrentUserId
+   ├─ user/      users 엔티티·저장소
+   ├─ auth/      회원가입·로그인·내 정보 API
+   ├─ pet/       반려동물 API (소유자 범위 패턴의 기준 예시), pet/photo/ 사진 업로드·조회
+   ├─ recorddate/ 기록 날짜(새벽 4시 규칙) 계산 — 이 한 곳에서만 계산
+   ├─ medication/ 투약 일정, medlog/ 투약 체크, dailylog/ 일일 기록
+   ├─ today/     "오늘" 화면 조회 + 제안값 계산(SuggestionService)
+   └─ event/     지표 이벤트
+   src/main/resources/db/migration/V1__init_schema.sql   전체 스키마
 ```
 
 ## 실행 방법
 
-> 아래 명령은 `projects/senior-pet-note/` 폴더에서 Git Bash 로 실행한다고 가정한다.
+> 아래 명령은 이 저장소 최상위 폴더에서 Git Bash 로 실행한다고 가정한다.
 > 이 PC 의 5432 포트는 다른 Postgres 컨테이너(local-postgresql)가 쓰고 있어서 **이 프로젝트 DB 는 5433 포트**를 쓴다.
 
 ### 0) 처음 한 번: 환경변수 파일 만들기
@@ -58,14 +60,14 @@ set -a; . ./.env; set +a      # .env 값을 현재 셸에 불러오기
 MSYS_NO_PATHCONV=1 docker run --rm --network senior-pet-note_default \
   -e TEST_DB_URL=jdbc:postgresql://postgres:5432/seniorpet_test \
   -e TEST_DB_PASSWORD="$POSTGRES_PASSWORD" \
-  -v "$(pwd -W)/backend:/workspace" -v seniorpet-gradle-cache:/root/.gradle \
+  -v "$(pwd -W):/workspace" -v seniorpet-gradle-cache:/root/.gradle \
   -w /workspace eclipse-temurin:21-jdk ./gradlew build --no-daemon
 
 # 서버 실행 (http://localhost:8080). 중지: docker stop seniorpet-api
 MSYS_NO_PATHCONV=1 docker run -d --rm --name seniorpet-api --network senior-pet-note_default -p 8080:8080 \
   -e DB_URL=jdbc:postgresql://postgres:5432/seniorpet \
   -e DB_PASSWORD="$POSTGRES_PASSWORD" -e JWT_SECRET="$JWT_SECRET" \
-  -v "$(pwd -W)/backend/build/libs:/app:ro" \
+  -v "$(pwd -W)/build/libs:/app:ro" \
   eclipse-temurin:21-jre java -jar /app/senior-pet-backend-0.0.1-SNAPSHOT.jar
 
 curl http://localhost:8080/api/health   # {"status":"ok"}
@@ -78,7 +80,6 @@ curl http://localhost:8080/api/health   # {"status":"ok"}
 
 ```bash
 set -a; . ./.env; set +a
-cd backend
 TEST_DB_PASSWORD="$POSTGRES_PASSWORD" ./gradlew build          # 테스트는 localhost:5433/seniorpet_test 사용
 DB_PASSWORD="$POSTGRES_PASSWORD" ./gradlew bootRun             # 서버 실행 (localhost:8080, DB localhost:5433/seniorpet)
 ```

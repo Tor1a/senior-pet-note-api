@@ -1,9 +1,9 @@
 # 시니어펫 노트 — 백엔드 API (Java / Spring Boot)
 
-> 웹·앱 클라이언트는 별도 저장소 `senior-pet-note-client` 에 있다. 저장소 분리 근거: 회사 문서 `docs/decisions/2026-10-07-저장소-분리.md`
+> 웹·앱 클라이언트는 별도 저장소 `senior-pet-note-client` 에 있다. 저장소 분리 근거: 분리 전 통합 저장소의 회사 문서 `docs/decisions/2026-10-07-저장소-분리.md` (이 저장소에는 없음)
 
 - 작성: developer(백엔드) / 2026-10-06
-- 근거: `docs/decisions/2026-10-06-기술-스택-변경.md`, `docs/decisions/2026-10-06-MVP-세부-결정.md`
+- 근거: `docs/decisions/2026-10-06-기술-스택-변경.md`, `docs/decisions/2026-10-06-MVP-세부-결정.md` (분리 전 통합 저장소의 회사 문서, 이 저장소에는 없음)
 - 스택: Java 21, Spring Boot 3.5, Gradle 8.14(wrapper), Spring Security + JWT(jjwt, HS256), Spring Data JPA, Flyway, PostgreSQL 17
 
 ## 폴더 구성
@@ -31,7 +31,7 @@ senior-pet-note-api/
 
 ## 실행 방법
 
-> 아래 명령은 이 저장소 최상위 폴더에서 Git Bash 로 실행한다고 가정한다.
+> 아래 명령은 이 저장소 최상위 폴더에서 macOS 터미널(zsh/bash) 또는 Windows Git Bash 로 실행한다고 가정한다.
 > 이 PC 의 5432 포트는 다른 Postgres 컨테이너(local-postgresql)가 쓰고 있어서 **이 프로젝트 DB 는 5433 포트**를 쓴다.
 
 ### 0) 처음 한 번: 환경변수 파일 만들기
@@ -51,7 +51,9 @@ docker compose ps             # STATUS 가 healthy 인지 확인
 
 DB 스키마는 서버가 시작될 때 Flyway 가 자동으로 적용한다(`db/migration/V*.sql`).
 
-### 2-A) JDK 없이 Docker 로 빌드·테스트·실행 (현재 대표 PC 방식)
+### 2-A) JDK 없이 Docker 로 빌드·테스트·실행 (Windows Git Bash 기준)
+
+> `pwd -W`, `MSYS_NO_PATHCONV` 는 Git Bash 전용이다. macOS·Linux 에서는 `MSYS_NO_PATHCONV=1` 을 빼고 `$(pwd -W)` 를 `$(pwd)` 로 바꾼다.
 
 ```bash
 set -a; . ./.env; set +a      # .env 값을 현재 셸에 불러오기
@@ -76,13 +78,16 @@ curl http://localhost:8080/api/health   # {"status":"ok"}
 - `seniorpet-gradle-cache` 는 Gradle 의존성 캐시용 Docker 볼륨이다(두 번째 빌드부터 빨라짐). 지워도 된다: `docker volume rm seniorpet-gradle-cache`
 - 첫 빌드는 의존성 다운로드 때문에 1~3분 걸린다.
 
-### 2-B) JDK 21 을 설치한 경우 (IDE 개발 권장 방식)
+### 2-B) JDK 21 을 설치한 경우 (IDE 개발 권장 방식, macOS 포함)
 
 ```bash
 set -a; . ./.env; set +a
 TEST_DB_PASSWORD="$POSTGRES_PASSWORD" ./gradlew build          # 테스트는 localhost:5433/seniorpet_test 사용
 DB_PASSWORD="$POSTGRES_PASSWORD" ./gradlew bootRun             # 서버 실행 (localhost:8080, DB localhost:5433/seniorpet)
 ```
+
+macOS 에서 기본 `java` 가 21 이 아니어도 된다. Gradle toolchain 이 설치된 JDK 21 을 찾아 쓴다(`/usr/libexec/java_home -V` 로 21 이 있는지 확인).
+Docker Desktop 이 꺼져 있으면 `docker compose up -d` 전에 `open -a Docker` 로 켠다.
 
 Windows PowerShell 이라면 `gradlew.bat` 를 쓰고 환경변수는 `$env:DB_PASSWORD = "..."` 처럼 지정한다.
 IntelliJ 에서는 실행 구성의 Environment variables 에 `DB_PASSWORD`, `JWT_SECRET` 을 넣는다.
@@ -126,7 +131,7 @@ IntelliJ 에서는 실행 구성의 Environment variables 에 `DB_PASSWORD`, `JW
 - 비밀번호는 BCrypt 해시로만 저장한다. 최대 길이 72자(BCrypt 한계, 초과 시 400).
 - 로그인 실패는 "이메일 없음"과 "비밀번호 틀림"을 구분하지 않고 둘 다 401 `UNAUTHORIZED`.
 
-### "오늘" 기록 화면 API — 계약서: `../docs/api-today.md` (웹과 합의, 바꾸려면 비서실장에게 먼저 알림)
+### "오늘" 기록 화면 API — 계약서: `docs/api-today.md` (웹과 합의, 바꾸려면 비서실장에게 먼저 알림)
 
 모든 API 는 로그인 필요. 남의 리소스·없는 리소스는 404 `NOT_FOUND`.
 

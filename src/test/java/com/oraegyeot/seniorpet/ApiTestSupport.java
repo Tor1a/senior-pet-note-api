@@ -27,7 +27,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 /**
  * API 통합 테스트 공통 부모.
- * 실제 PostgreSQL(seniorpet_test DB)에 붙는다 → backend/README.md "테스트" 참고.
+ * 실제 PostgreSQL(seniorpet_test DB)에 붙는다 → README.md "테스트" 참고.
  * 테스트끼리 데이터가 섞이지 않도록 매번 무작위 이메일로 새 사용자를 만든다.
  * 시각은 MutableClock(@Primary Clock)으로 고정할 수 있고, 테스트가 끝나면 실제 시각으로 돌린다.
  */

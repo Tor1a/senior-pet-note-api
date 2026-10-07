@@ -5,7 +5,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import java.util.UUID;
 
-/** 인증 API 요청·응답 형식. 웹·앱과 맞춘 계약이므로 필드명을 바꾸지 말 것(backend/README.md "API"). */
+/** 인증 API 요청·응답 형식. 웹·앱과 맞춘 계약이므로 필드명을 바꾸지 말 것(README.md "API"). */
 public final class AuthDtos {
 
     private AuthDtos() {

@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
 /**
  * 기록 날짜(record_date) 계산 — 서버 안에서 이 클래스 한 곳에서만 계산한다.
  *
- * 규칙(docs/decisions/2026-10-06-MVP-세부-결정.md 결정 3, docs/api-today.md 0-2):
+ * 규칙(docs/api-today.md 0-2):
  * Asia/Seoul 기준 00:00~03:59 는 전날, 04:00 부터 당일.
  * 투약 체크(med_logs), 일일 기록(daily_logs), "오늘" 화면 날짜가 모두 이 규칙을 쓴다.
  * 대표가 기준을 바꾸면 아래 상수만 고치면 된다.

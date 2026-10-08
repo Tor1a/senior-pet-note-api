@@ -1,5 +1,6 @@
 package com.oraegyeot.seniorpet.auth;
 
+import com.oraegyeot.seniorpet.common.MaxUtf8Bytes;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -19,6 +20,7 @@ public final class AuthDtos {
             String email,
             @NotBlank(message = "비밀번호를 입력하세요.")
             @Size(min = 8, max = 72, message = "비밀번호는 8자 이상 72자 이하여야 합니다.")
+            @MaxUtf8Bytes(value = 72, message = "비밀번호는 영문·숫자 기준 72자, 한글은 24자 이하여야 합니다.")
             String password) {
     }
 

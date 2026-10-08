@@ -17,6 +17,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 
@@ -29,6 +32,8 @@ import org.springframework.stereotype.Component;
  */
 @Component
 class ReminderDispatchQueries {
+
+    private static final Logger log = LoggerFactory.getLogger(ReminderDispatchQueries.class);
 
     private final JdbcClient jdbc;
 
@@ -79,6 +84,33 @@ class ReminderDispatchQueries {
      */
     Optional<Long> claim(UUID userId, UUID medicationId, LocalDate recordDate, LocalTime scheduledTime,
                                 Instant fireAt) {
+        try {
+            return insertClaim(userId, medicationId, recordDate, scheduledTime, fireAt);
+        } catch (DataIntegrityViolationException e) {
+            // 후보 조회 뒤 약·사용자가 삭제된 경우(회원 탈퇴 등): 외래키 위반(23503)만 건너뛴다(오류 아님).
+            // 그 밖의 무결성 오류는 숨기지 않고 다시 던진다(호출한 쪽의 회차 단위 catch 가 error 로그를 남김).
+            if (!isForeignKeyViolation(e)) {
+                throw e;
+            }
+            log.debug("투약 알림 회차 건너뜀(삭제된 약): medicationId={}", medicationId);
+            return Optional.empty();
+        }
+    }
+
+    private static boolean isForeignKeyViolation(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof java.sql.SQLException sql && "23503".equals(sql.getSQLState())) {
+                return true;
+            }
+            if (t.getCause() == t) {
+                break;
+            }
+        }
+        return false;
+    }
+
+    private Optional<Long> insertClaim(UUID userId, UUID medicationId, LocalDate recordDate,
+                                       LocalTime scheduledTime, Instant fireAt) {
         return jdbc.sql("""
                         insert into reminder_dispatches
                                (user_id, medication_id, record_date, scheduled_time, fire_at, status)

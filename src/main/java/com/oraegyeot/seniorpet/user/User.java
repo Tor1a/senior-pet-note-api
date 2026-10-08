@@ -27,6 +27,9 @@ public class User {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    @Column(name = "token_version", nullable = false)
+    private int tokenVersion;
+
     protected User() {
         // JPA 용
     }
@@ -47,6 +50,16 @@ public class User {
 
     public String getPasswordHash() {
         return passwordHash;
+    }
+
+    public int getTokenVersion() {
+        return tokenVersion;
+    }
+
+    /** 비밀번호를 바꾸고 token_version 을 올려 이전에 발급한 토큰을 모두 무효로 만든다. */
+    public void changePasswordHash(String newPasswordHash) {
+        this.passwordHash = newPasswordHash;
+        this.tokenVersion++;
     }
 
     public Instant getCreatedAt() {

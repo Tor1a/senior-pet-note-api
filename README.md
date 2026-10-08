@@ -21,6 +21,7 @@ senior-pet-note-api/
    ├─ security/  JWT 발급·검증, 보안 필터, CORS, @CurrentUserId
    ├─ user/      users 엔티티·저장소
    ├─ auth/      회원가입·로그인·내 정보 API
+   ├─ account/   비밀번호 변경·회원 탈퇴 API, 비밀번호 확인 실패 속도 제한(docs/api-account.md)
    ├─ pet/       반려동물 API (소유자 범위 패턴의 기준 예시), pet/photo/ 사진 업로드·조회
    ├─ recorddate/ 기록 날짜(새벽 4시 규칙) 계산 — 이 한 곳에서만 계산
    ├─ medication/ 투약 일정, medlog/ 투약 체크, dailylog/ 일일 기록
@@ -31,6 +32,7 @@ senior-pet-note-api/
    └─ event/     지표 이벤트
    src/main/resources/db/migration/V1__init_schema.sql   초기 스키마
    src/main/resources/db/migration/V2__medication_reminders_and_device_tokens.sql   투약 알림·기기 토큰
+   src/main/resources/db/migration/V3__user_token_version.sql   users.token_version (비밀번호 변경 시 토큰 무효화)
 ```
 
 ## 실행 방법
@@ -140,7 +142,19 @@ IntelliJ 에서는 실행 구성의 Environment variables 에 `DB_PASSWORD`, `JW
 - JWT HS256, 만료 7일, refresh 토큰 없음(만료되면 다시 로그인). 토큰 subject = 사용자 id.
 - 이메일은 앞뒤 공백 제거 + 소문자로 저장·비교한다(`A@B.com` 으로 가입 → `a@b.com` 으로 로그인 가능, 응답의 email 은 소문자).
 - 비밀번호는 BCrypt 해시로만 저장한다. 최대 길이 72자(BCrypt 한계, 초과 시 400).
+- 토큰에는 `ver` 클레임(= `users.token_version`)이 들어간다. 없는 기존 토큰은 0 으로 본다. 비밀번호를 바꾸면 버전이 올라 이전 토큰이 모두 401 이 된다.
+- 비밀번호는 글자 수(8~72자)와 UTF-8 72바이트 이하를 모두 만족해야 한다(영문·숫자 72자, 한글 24자). 한글 25자 이상은 400 `VALIDATION_ERROR`(2026-10-08 수정, 이전엔 500). 로그인에 72바이트 초과를 보내면 401.
 - 로그인 실패는 "이메일 없음"과 "비밀번호 틀림"을 구분하지 않고 둘 다 401 `UNAUTHORIZED`.
+
+### 계정 관리 · 회원 탈퇴 API — 계약서: `docs/api-account.md`
+
+| 메서드 | 경로 | 인증 | 요청 | 성공 응답 |
+|--------|------|------|------|-----------|
+| PUT | `/api/me/password` | 필요 | `{"currentPassword","newPassword"}` (새 비밀번호 8자 이상, UTF-8 72바이트 이하, 현재와 달라야 함) | 200 `{"accessToken"}` (새 토큰. 이전 토큰은 모두 401) |
+| POST | `/api/me/withdraw` | 필요 | `{"password","confirm":true}` | 204 (계정·데이터·사진 즉시 영구 삭제) |
+
+- 현재 비밀번호 불일치는 **400 `CURRENT_PASSWORD_MISMATCH`**(401 아님: 클라이언트가 401 을 강제 로그아웃으로 처리). 비밀번호 확인 15분 5회 실패 시 429 `TOO_MANY_ATTEMPTS`(+`Retry-After`). 인메모리 카운터라 서버 재시작·다중 인스턴스에서는 초기화/분리된다(단일 인스턴스 전제). 시도는 비교 전에 먼저 세므로 동시 요청으로 한도를 넘길 수 없다. 동시 비밀번호 변경이 겹치면 한쪽은 409 `PASSWORD_CHANGE_CONFLICT`.
+- 사진 폴더 삭제가 실패하면(탈퇴는 성공) 서버 로그에 warn 이 남는다. 고아 폴더 수동 정리: 저장 폴더의 UUID 폴더 중 `users` 에 없는 것은 삭제해도 된다.
 
 ### "오늘" 기록 화면 API — 계약서: `docs/api-today.md` (웹과 합의, 바꾸려면 비서실장에게 먼저 알림)
 
@@ -224,18 +238,21 @@ IntelliJ 에서는 실행 구성의 Environment variables 에 `DB_PASSWORD`, `JW
 | 400 | `INVALID_RECORD_DATE` | 일일 기록 경로의 날짜가 서버의 현재 기록 날짜와 다름(형식 오류 포함) |
 | 400 | `INVALID_DATE_RANGE` | 지난 기록 조회의 from/to 형식 오류, from>to, 91일 이상, 미래 to |
 | 400 | `INVALID_FILE` | 사진 형식 오류(Content-Type·매직 바이트 불일치, 빈 파일, file 필드 없음) |
+| 400 | `CURRENT_PASSWORD_MISMATCH` | 비밀번호 변경·탈퇴 시 비밀번호 불일치(401 아님) |
 | 404 | `NOT_FOUND` | 없는 리소스 **또는 남의 리소스** |
 | 405 | `METHOD_NOT_ALLOWED` | 지원하지 않는 메서드 |
+| 409 | `PASSWORD_CHANGE_CONFLICT` | 같은 계정의 비밀번호 변경이 동시에 겹침(다시 시도) |
 | 409 | `EMAIL_TAKEN` | 이미 가입된 이메일 |
 | 409 | `PET_LIMIT_REACHED` | 반려동물 2마리째 등록 시도 |
 | 409 | `ALREADY_CHECKED` | 이미 체크한 투약 회차 |
 | 413 | `FILE_TOO_LARGE` | 사진 5MB 초과 |
+| 429 | `TOO_MANY_ATTEMPTS` | 비밀번호 확인 연속 실패 한도 초과(`Retry-After` 초) |
 | 500 | `INTERNAL_ERROR` | 서버 오류 |
 
 ### CORS
 
 - 허용 출처: `CORS_ALLOWED_ORIGINS` (기본 `http://localhost:5173`, `http://localhost:4173`). `/api/**` 에 적용.
-- 허용 메서드: GET, POST, PUT, PATCH, DELETE, OPTIONS / 허용 헤더: `Authorization`, `Content-Type`
+- 허용 메서드: GET, POST, PUT, PATCH, DELETE, OPTIONS / 허용 헤더: `Authorization`, `Content-Type` / 노출 헤더: `Retry-After`(429 대기 시간을 브라우저가 읽도록)
 - preflight(OPTIONS)는 인증 없이 통과한다(보안 필터보다 먼저 CORS 처리). 쿠키는 쓰지 않는다(allowCredentials=false).
 - 허용되지 않은 출처의 preflight 는 403.
 
@@ -264,6 +281,7 @@ Supabase RLS 가 없어졌으므로 **API 계층이 유일한 방어선**이다.
 ## 데이터베이스
 
 - 스키마: `src/main/resources/db/migration/V1__init_schema.sql` — users, pets, medications, med_logs, daily_logs, push_subscriptions, events
+- `V3__user_token_version.sql` — `users.token_version integer not null default 0`(비밀번호 변경 시 +1, JWT `ver` 와 비교)
 - `V2__medication_reminders_and_device_tokens.sql` — 투약 알림
   - `medication_reminders`: 약별 알림 규칙(약 1개당 1행, `unique (medication_id)`). `repeat_type`·`days_of_week smallint[]`(ISO 1=월…7=일)·`interval_days` 조합을 CHECK 로 강제, `end_date >= start_date`
   - `device_tokens`: FCM 토큰(`token` 전역 unique, platform android|ios|web, `last_seen_at`)
@@ -271,7 +289,7 @@ Supabase RLS 가 없어졌으므로 **API 계층이 유일한 방어선**이다.
   - V1 의 `push_subscriptions`(웹 푸시 VAPID용)는 쓰지 않지만 그대로 둔다(후속 마이그레이션에서 삭제 검토)
 - 옛 Supabase 스키마에서 바뀐 점: `auth.users` → 자체 `users`(id, email unique, password_hash, created_at), `default auth.uid()`·RLS·storage 정책 제거.
   디자이너 반영 필드(`symptoms_none`, `water_level`/`water_ml`, `record_date`/`taken_at`)와 CHECK 제약, 새벽 4시 규칙 COMMENT 는 그대로다.
-- **스키마 변경은 새 파일 `V2__설명.sql` 로만 한다.** 이미 적용된 V1 을 고치면 Flyway 가 체크섬 오류로 서버를 멈춘다.
+- **스키마 변경은 새 파일 `V4__설명.sql`(다음 번호) 로만 한다.** 이미 적용된 V1 을 고치면 Flyway 가 체크섬 오류로 서버를 멈춘다.
 - Hibernate 는 `ddl-auto: validate` (엔티티와 테이블이 맞는지 검사만 함).
 - 기록 날짜 규칙: 서비스 시간대(`app.zone`, 기본 Asia/Seoul) 기준 00:00~03:59 체크는 전날 `record_date`. 실제 시각은 `taken_at`. **서버가 계산한다**(`RecordDateCalculator`, 계약서 0-2).
 - "오늘" 화면 API 는 V1 스키마 그대로 동작한다(V2 는 투약 알림 테이블만 추가, 기존 테이블 변경 없음).
@@ -292,7 +310,7 @@ Supabase RLS 가 없어졌으므로 **API 계층이 유일한 방어선**이다.
 
 ## 테스트
 
-- 위치: `src/test/java/...` (총 183개) — `AuthApiTest`(회원가입→로그인→/api/me, 잘못된·위조 토큰 401, 중복 이메일 409, 400 검증, CORS),
+- 위치: `src/test/java/...` (총 250개) — `AuthApiTest`(회원가입→로그인→/api/me, 잘못된·위조 토큰 401, 중복 이메일 409, 400 검증, CORS),
   `PetOwnershipTest`(다른 사용자 pet 404, 목록 격리, 본문 userId 무시, 1마리 제한 409),
   `PetPhotoApiTest`(사진 업로드·조회·교체 시 이전 파일 삭제·삭제, 형식 오류 400, 5MB 초과 413, pet 수정),
   `TodayApiTest`(새벽 4시 경계 03:59/04:00 에서 today·med-logs·daily-logs 가 같은 날짜, 409, 일정 밖 시각 400, upsert, INVALID_RECORD_DATE, 증상 규칙, 제안값·직전 체중),
@@ -304,6 +322,8 @@ Supabase RLS 가 없어졌으므로 **API 계층이 유일한 방어선**이다.
   `ReminderOwnershipTest`(다른 사용자의 약 알림·기기 404, 본문 userId 무시), `ReminderSchemaTest`(V2 CHECK·유니크 제약),
   `ReminderDispatchTest`(정시 발송·문구·data, 중복 호출·동시 호출 1건, skipped_taken, no_device, 02:00 회차, 규칙 불일치·꺼짐·비활성·시작 전·종료 후, 지연 9분 발송·10분/11분 버림, 소급 방지, 무효 토큰 삭제, 전체 실패, 예외 격리),
   단위 테스트 `ReminderRuleTest`(daily/weekly/interval, 시작·종료일, 02:00 회차 요일, nextFireAt), `FcmPushSenderTest`(오류 코드 매핑, 자격증명 오류, 가짜 키로 초기화), `PushSenderConfigTest`(FCM_ENABLED 에 따른 발송기 선택·시작 실패)
+- 계정: `PasswordChangeApiTest`(성공·불일치 400·규칙 위반·같은 비밀번호·한글 72바이트 경계·변경 후 이전 토큰 401·ver 없는 기존 토큰), `WithdrawApiTest`(모든 자식 테이블 행 0·사진 삭제·불일치 400 데이터 유지·확인 플래그·타인 영향 없음·탈퇴 후 401·재가입),
+  `PasswordAttemptLimitTest`(5회 후 429·15분 후 해제·성공 시 초기화, MutableClock), `ReminderClaimDeletedUserTest`(탈퇴 경합: claim FK 위반 건너뜀), `LocalPhotoStorageDeleteAllTest`(사용자 폴더만 삭제·심볼릭 링크 미추적).
 - 푸시: `ApiTestSupport` 가 `FakePushSender` 를 `@Primary PushSender` 로 등록한다(실제 FCM 호출 0회). 테스트 프로필은 스케줄러를 끄고(`app.reminder.scheduler-enabled: false`) `dispatchDue()` 를 직접 부른다.
   발송 작업은 전 사용자의 규칙을 훑으므로 알림 테스트는 `newDisposableUserToken()` 으로 만든 사용자를 테스트 끝에 삭제한다. 단언은 자기 기기 토큰·medicationId 로 거른다.
   FCM 테스트의 서비스 계정은 실행마다 새로 만드는 가짜 RSA 키다(실제 키·네트워크 없음).
@@ -325,6 +345,12 @@ Supabase RLS 가 없어졌으므로 **API 계층이 유일한 방어선**이다.
 - 기존 DB 보정: 이전 KST JVM 에서 쓴 `med_logs.scheduled_time` 은 -9시간이다. Flyway 로 만들지 않고(환경마다 어긋난 정도가 다름) 1회성으로 `update med_logs set scheduled_time = scheduled_time + interval '9 hours'` 를 실행했다(개발 DB 1행, 테스트 DB 96행). **운영 DB 에 KST JVM 으로 쓴 행이 있다면 같은 보정이 필요하고, UTC JVM 으로 쓴 행은 보정하면 안 된다.**
 - 회귀 테스트: `TimeZoneStorageTest`(JDBC 로 직접 조회, JVM 시간대를 UTC·Seoul·New_York 으로 바꿔도 동일), `RecordDateCalculatorZoneTest`(zone 별 컷오프·slotInstant), `HistoryZoneTest`(`app.zone=America/New_York`), `AppZoneConfigTest`(기본값·잘못된 값 기동 실패).
 - 운영 시 `docker-compose.yml` 의 Postgres `TZ` 는 UTC 로 바꿨다(로그 표기만 영향. 컨테이너를 다시 만들 때 반영).
+
+## 알려진 문제 / 후속 과제
+
+- 사진 고아 폴더 정리: `users` 에 없는 UUID 의 사진 폴더(탈퇴 시 삭제 실패 등)를 주기적으로 정리하는 작업이 아직 없다(지금은 수동 삭제).
+- 속도 제한(비밀번호 확인 15분 5회)은 인메모리라 서버 재시작·다중 인스턴스에서 초기화/분리된다. 인스턴스를 늘리기 전에 DB·Redis 기반으로 옮겨야 한다.
+- 탈퇴 사용자 UUID 로그 정책: 사진 삭제 실패 warn 등에 탈퇴한 사용자 UUID 가 남는다(이메일·비밀번호는 남기지 않음). 보관 기간과 개인정보 해당 여부를 정해야 한다.
 
 ## 문제 해결
 

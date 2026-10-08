@@ -6,6 +6,7 @@ import com.oraegyeot.seniorpet.common.ApiException;
 import com.oraegyeot.seniorpet.security.JwtService;
 import com.oraegyeot.seniorpet.user.User;
 import com.oraegyeot.seniorpet.user.UserRepository;
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
@@ -53,7 +54,10 @@ public class AuthService {
     public AuthResponse login(String rawEmail, String password) {
         Optional<User> found = userRepository.findByEmail(normalizeEmail(rawEmail));
         String hash = found.map(User::getPasswordHash).orElse(dummyHash);
-        boolean matches = passwordEncoder.matches(password, hash);
+        // 72바이트를 넘는 입력은 가입할 수 없었던 값이라 일치할 수 없다(BCrypt 예외 → 500 방지). 응답 시간은 맞추려고 더미 비교를 한다.
+        boolean tooLong = password.getBytes(StandardCharsets.UTF_8).length > 72;
+        boolean matches = passwordEncoder.matches(tooLong ? "timing-dummy-password" : password, tooLong ? dummyHash : hash)
+                && !tooLong;
         if (found.isEmpty() || !matches) {
             // 이메일이 없는지, 비밀번호가 틀렸는지 구분하지 않는다
             throw ApiException.unauthorized("이메일 또는 비밀번호가 올바르지 않습니다.");
@@ -69,7 +73,7 @@ public class AuthService {
     }
 
     private AuthResponse toAuthResponse(User user) {
-        String token = jwtService.issue(user.getId(), user.getEmail());
+        String token = jwtService.issue(user.getId(), user.getEmail(), user.getTokenVersion());
         return new AuthResponse(token, new UserResponse(user.getId(), user.getEmail()));
     }
 

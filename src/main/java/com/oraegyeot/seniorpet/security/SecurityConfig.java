@@ -63,6 +63,7 @@ public class SecurityConfig {
         config.setAllowedOrigins(props.allowedOrigins() != null ? props.allowedOrigins() : List.of());
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+        config.setExposedHeaders(List.of("Retry-After")); // 429 의 대기 시간을 브라우저 JS 가 읽게 한다
         config.setAllowCredentials(false); // 쿠키를 쓰지 않는다(토큰은 Authorization 헤더)
         config.setMaxAge(3600L);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

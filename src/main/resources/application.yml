@@ -51,6 +51,10 @@ app:
   cors:
     # 쉼표로 여러 개 지정. 기본값 = 웹 개발 서버(5173) + vite preview(4173)
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:4173}
+  account:
+    # 비밀번호 확인(비밀번호 변경·회원 탈퇴) 실패 한도: 창 안에서 max-failures 회 실패하면 429. 사용자별 인메모리 카운터
+    max-failures: 5
+    failure-window: 15m
   photo:
     # 사진 저장 폴더(로컬 디스크). 경로 규칙 <user_id>/<랜덤파일명>.<확장자>. 커밋 금지(.gitignore 의 data/)
     dir: ${PHOTO_DIR:./data/photos}

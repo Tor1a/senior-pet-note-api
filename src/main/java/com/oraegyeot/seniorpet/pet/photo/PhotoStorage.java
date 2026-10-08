@@ -18,4 +18,10 @@ public interface PhotoStorage {
 
     /** 파일 삭제. 없으면 무시한다(실패해도 예외를 던지지 않고 로그만 남긴다). */
     void delete(String path);
+
+    /**
+     * 사용자 폴더(<user_id>/) 전체 삭제 — 회원 탈퇴용. 폴더가 없으면 무시하고, 실패해도 예외를 던지지 않고 로그만 남긴다.
+     * 오브젝트 스토리지 구현은 "<user_id>/" 접두사 일괄 삭제로 구현해야 한다.
+     */
+    void deleteAllOf(UUID userId);
 }

@@ -3,6 +3,7 @@ package com.oraegyeot.seniorpet.common;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -25,7 +26,11 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ApiError> handleApi(ApiException e) {
-        return ResponseEntity.status(e.status()).body(new ApiError(e.code(), e.getMessage()));
+        ResponseEntity.BodyBuilder builder = ResponseEntity.status(e.status());
+        if (e.retryAfterSeconds() != null) {
+            builder.header(HttpHeaders.RETRY_AFTER, String.valueOf(e.retryAfterSeconds()));
+        }
+        return builder.body(new ApiError(e.code(), e.getMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

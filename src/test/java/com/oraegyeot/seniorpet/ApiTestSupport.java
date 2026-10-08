@@ -128,6 +128,11 @@ public abstract class ApiTestSupport {
         return token;
     }
 
+    /** 이미 만든 사용자를 테스트 끝에 삭제하도록 등록한다(이미 지워졌으면 0행이라 무해). */
+    protected void registerForCleanup(UUID userId) {
+        disposableUsers.add(userId);
+    }
+
     /** GET /api/me 로 사용자 id 를 얻는다. */
     protected UUID userIdOf(String token) throws Exception {
         return UUID.fromString(call(get("/api/me"), token, 200).get("id").asText());

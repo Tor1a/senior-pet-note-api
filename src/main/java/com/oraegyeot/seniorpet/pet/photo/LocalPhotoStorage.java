@@ -2,10 +2,13 @@ package com.oraegyeot.seniorpet.pet.photo;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -66,6 +69,39 @@ public class LocalPhotoStorage implements PhotoStorage {
             Files.deleteIfExists(resolve(path));
         } catch (IOException | IllegalArgumentException e) {
             log.warn("사진 파일 삭제 실패(무시): {}", e.getMessage());
+        }
+    }
+
+    @Override
+    public void deleteAllOf(UUID userId) {
+        // userId 는 UUID 타입이라 폴더명에 ../ 등이 들어갈 수 없다. 그래도 저장 폴더 바로 아래인지 확인한다.
+        Path dir = root.resolve(userId.toString()).normalize();
+        if (!root.equals(dir.getParent())) {
+            log.warn("사진 폴더 삭제 거부(저장 폴더 바로 아래가 아님): userId={}", userId);
+            return;
+        }
+        try {
+            // walkFileTree 는 기본적으로 심볼릭 링크를 따라가지 않는다(링크 자체만 지운다)
+            Files.walkFileTree(dir, new SimpleFileVisitor<>() {
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                    Files.delete(file);
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult postVisitDirectory(Path d, IOException exc) throws IOException {
+                    if (exc != null) {
+                        throw exc;
+                    }
+                    Files.delete(d);
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        } catch (NoSuchFileException e) {
+            // 사진을 올린 적 없는 사용자: 정상
+        } catch (IOException | RuntimeException e) {
+            log.warn("사진 폴더 삭제 실패(무시): userId={}, 원인={}", userId, e.getClass().getSimpleName());
         }
     }
 

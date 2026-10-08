@@ -26,10 +26,6 @@ spring:
     hibernate:
       # 스키마는 Flyway 만 바꾼다. Hibernate 는 엔티티와 테이블이 맞는지 검사만 한다.
       ddl-auto: validate
-    properties:
-      hibernate:
-        jdbc:
-          time_zone: UTC
   servlet:
     multipart:
       # 사진 업로드 한도. PetPhotoService.MAX_BYTES(5MB)와 같은 값. 넘으면 413 FILE_TOO_LARGE
@@ -40,9 +36,13 @@ spring:
     locations: classpath:db/migration
   jackson:
     default-property-inclusion: always
+    # JVM 이 항상 UTC 이므로 명시만 해 둔다
     time-zone: UTC
 
 app:
+  # 서비스 기준 시간대(기록 날짜 새벽 4시 규칙·알림 발송 시각·지난 기록 기간 계산). 틀린 값이면 서버가 시작되지 않는다.
+  # JVM 시간대(항상 UTC, SeniorPetApplication.main)와는 별개다. README.md "시간대"
+  zone: ${APP_ZONE:Asia/Seoul}
   jwt:
     # HS256 서명 키. 32바이트 이상 필수(짧거나 비어 있으면 서버가 시작되지 않는다).
     secret: ${JWT_SECRET:}

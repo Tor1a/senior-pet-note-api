@@ -19,6 +19,8 @@ import org.junit.jupiter.api.Test;
  */
 class ReminderRuleBoundaryTest {
 
+    private static final RecordDateCalculator CALC =
+            new RecordDateCalculator(java.time.Clock.systemUTC(), java.time.ZoneId.of("Asia/Seoul"));
     private static final LocalDate MON = LocalDate.of(2026, 10, 12);
     private static final List<LocalTime> EIGHT = List.of(LocalTime.of(8, 0));
     private static final List<LocalTime> TWO_AM = List.of(LocalTime.of(2, 0));
@@ -57,7 +59,7 @@ class ReminderRuleBoundaryTest {
         ReminderRule r = interval(7, LocalDate.of(2025, 1, 1), null);
         assertThat(r.matches(LocalDate.of(2026, 10, 12))).isFalse();
         assertThat(r.matches(LocalDate.of(2026, 10, 14))).isTrue();
-        assertThat(r.nextFireAt(seoul("2026-10-12T09:00"), EIGHT)).isEqualTo(seoul("2026-10-14T08:00"));
+        assertThat(r.nextFireAt(CALC, seoul("2026-10-12T09:00"), EIGHT)).isEqualTo(seoul("2026-10-14T08:00"));
     }
 
     @Test
@@ -75,7 +77,7 @@ class ReminderRuleBoundaryTest {
         assertThat(r.matches(MON.plusDays(3))).isTrue();
         assertThat(r.matches(MON.plusDays(4))).isFalse();
         assertThat(r.matches(MON.plusDays(6))).isFalse();
-        assertThat(r.nextFireAt(seoul("2026-10-15T09:00"), EIGHT)).isNull();
+        assertThat(r.nextFireAt(CALC, seoul("2026-10-15T09:00"), EIGHT)).isNull();
     }
 
     @Test
@@ -84,8 +86,8 @@ class ReminderRuleBoundaryTest {
         assertThat(r.matches(MON.minusDays(1))).isFalse();
         assertThat(r.matches(MON)).isTrue();
         assertThat(r.matches(MON.plusDays(1))).isFalse();
-        assertThat(r.nextFireAt(seoul("2026-10-12T07:59"), EIGHT)).isEqualTo(seoul("2026-10-12T08:00"));
-        assertThat(r.nextFireAt(seoul("2026-10-12T08:00"), EIGHT)).isNull();
+        assertThat(r.nextFireAt(CALC, seoul("2026-10-12T07:59"), EIGHT)).isEqualTo(seoul("2026-10-12T08:00"));
+        assertThat(r.nextFireAt(CALC, seoul("2026-10-12T08:00"), EIGHT)).isNull();
     }
 
     @Test
@@ -96,7 +98,7 @@ class ReminderRuleBoundaryTest {
         assertThat(r.matches(MON)).isFalse();
         assertThat(r.matches(MON.plusDays(2))).isTrue();
         assertThat(r.matches(MON.plusDays(7))).isTrue();
-        assertThat(r.nextFireAt(seoul("2026-10-12T09:00"), EIGHT)).isEqualTo(seoul("2026-10-14T08:00"));
+        assertThat(r.nextFireAt(CALC, seoul("2026-10-12T09:00"), EIGHT)).isEqualTo(seoul("2026-10-14T08:00"));
     }
 
     @Test
@@ -114,8 +116,8 @@ class ReminderRuleBoundaryTest {
     void 종료일_당일의_새벽_회차는_다음날_새벽에_발송되고_그_다음은_없다() {
         // 종료일 = 월요일, 02:00 → "월요일 약"은 화요일 02:00 에 발송. 화요일 기록 날짜는 종료 후.
         ReminderRule r = new ReminderRule(true, RepeatType.DAILY, Set.of(), null, MON.minusDays(3), MON);
-        assertThat(r.nextFireAt(seoul("2026-10-12T23:00"), TWO_AM)).isEqualTo(seoul("2026-10-13T02:00"));
-        assertThat(r.nextFireAt(seoul("2026-10-13T03:59"), TWO_AM)).isNull();
+        assertThat(r.nextFireAt(CALC, seoul("2026-10-12T23:00"), TWO_AM)).isEqualTo(seoul("2026-10-13T02:00"));
+        assertThat(r.nextFireAt(CALC, seoul("2026-10-13T03:59"), TWO_AM)).isNull();
     }
 
     @Test
@@ -123,7 +125,7 @@ class ReminderRuleBoundaryTest {
         // 월요일 시작, 02:00 → 월요일 01:00(기록 날짜 일요일)에는 일요일 회차가 없으므로 다음은 화요일 02:00
         ReminderRule r = new ReminderRule(true, RepeatType.DAILY, Set.of(), null, MON, null);
         assertThat(r.matches(MON.minusDays(1))).isFalse();
-        assertThat(r.nextFireAt(seoul("2026-10-12T01:00"), TWO_AM)).isEqualTo(seoul("2026-10-13T02:00"));
+        assertThat(r.nextFireAt(CALC, seoul("2026-10-12T01:00"), TWO_AM)).isEqualTo(seoul("2026-10-13T02:00"));
     }
 
     @Test
@@ -133,26 +135,26 @@ class ReminderRuleBoundaryTest {
                 LocalDate.of(2026, 10, 1), null);
         List<LocalTime> times = List.of(LocalTime.of(3, 59), LocalTime.of(4, 0));
         // 월 03:00(기록 날짜 일) → 다음 = 월 04:00
-        assertThat(r.nextFireAt(seoul("2026-10-12T03:00"), times)).isEqualTo(seoul("2026-10-12T04:00"));
+        assertThat(r.nextFireAt(CALC, seoul("2026-10-12T03:00"), times)).isEqualTo(seoul("2026-10-12T04:00"));
         // 월 04:00 직후 → 다음 = 화 03:59(아직 월요일 회차)
-        assertThat(r.nextFireAt(seoul("2026-10-12T04:00"), times)).isEqualTo(seoul("2026-10-13T03:59"));
+        assertThat(r.nextFireAt(CALC, seoul("2026-10-12T04:00"), times)).isEqualTo(seoul("2026-10-13T03:59"));
         // 화 03:59 이후 → 다음 주 월 04:00 (화 04:00 은 화요일 회차라 제외)
-        assertThat(r.nextFireAt(seoul("2026-10-13T03:59"), times)).isEqualTo(seoul("2026-10-19T04:00"));
+        assertThat(r.nextFireAt(CALC, seoul("2026-10-13T03:59"), times)).isEqualTo(seoul("2026-10-19T04:00"));
     }
 
     @Test
     void nextFireAt_400일_한도_경계() {
         Instant now = seoul("2026-10-12T09:00");
         ReminderRule at400 = new ReminderRule(true, RepeatType.DAILY, Set.of(), null, MON.plusDays(400), null);
-        assertThat(at400.nextFireAt(now, EIGHT))
-                .isEqualTo(RecordDateCalculator.slotInstant(MON.plusDays(400), LocalTime.of(8, 0)));
+        assertThat(at400.nextFireAt(CALC, now, EIGHT))
+                .isEqualTo(CALC.slotInstant(MON.plusDays(400), LocalTime.of(8, 0)));
         ReminderRule at401 = new ReminderRule(true, RepeatType.DAILY, Set.of(), null, MON.plusDays(401), null);
-        assertThat(at401.nextFireAt(now, EIGHT)).isNull();
+        assertThat(at401.nextFireAt(CALC, now, EIGHT)).isNull();
     }
 
     @Test
     void nextFireAt_투약_시각이_비어_있으면_null() {
         ReminderRule r = new ReminderRule(true, RepeatType.DAILY, Set.of(), null, MON, null);
-        assertThat(r.nextFireAt(seoul("2026-10-12T09:00"), List.of())).isNull();
+        assertThat(r.nextFireAt(CALC, seoul("2026-10-12T09:00"), List.of())).isNull();
     }
 }

@@ -1,5 +1,6 @@
 package com.oraegyeot.seniorpet;
 
+import java.util.TimeZone;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration;
@@ -14,6 +15,9 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 public class SeniorPetApplication {
 
     public static void main(String[] args) {
+        // JVM 시간대는 UTC 로 고정한다. LocalTime(med_logs.scheduled_time)이 JVM 시간대와 무관하게 입력한 그대로 저장된다.
+        // 서비스 기준 시간대는 별개로 app.zone(APP_ZONE)이 정한다.
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
         SpringApplication.run(SeniorPetApplication.class, args);
     }
 }

@@ -39,7 +39,7 @@ public class MedLogService {
             throw ApiException.validation("약 일정에 없는 투약 시각입니다.");
         }
         Instant now = recordDates.now();
-        LocalDate recordDate = RecordDateCalculator.recordDateOf(now);
+        LocalDate recordDate = recordDates.recordDateOf(now);
         if (medLogRepository.existsByUserIdAndMedicationIdAndRecordDateAndScheduledTime(
                 userId, med.getId(), recordDate, slot)) {
             throw alreadyChecked();

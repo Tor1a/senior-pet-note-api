@@ -24,6 +24,7 @@ senior-pet-note-api/
    ├─ pet/       반려동물 API (소유자 범위 패턴의 기준 예시), pet/photo/ 사진 업로드·조회
    ├─ recorddate/ 기록 날짜(새벽 4시 규칙) 계산 — 이 한 곳에서만 계산
    ├─ medication/ 투약 일정, medlog/ 투약 체크, dailylog/ 일일 기록
+   ├─ history/   지난 기록 조회(기간별 일일 기록 + 투약 집계)
    ├─ today/     "오늘" 화면 조회 + 제안값 계산(SuggestionService)
    ├─ reminder/  투약 알림 규칙 API + 1분 주기 발송 작업(ReminderDispatcher, ReminderScheduler)
    ├─ push/      기기 토큰 API + 푸시 발송기(PushSender: FCM / 로그)
@@ -106,6 +107,7 @@ IntelliJ 에서는 실행 구성의 Environment variables 에 `DB_PASSWORD`, `JW
 | `JWT_EXPIRATION` | | `7d` | 토큰 유효기간 (예: `7d`, `12h`) |
 | `CORS_ALLOWED_ORIGINS` | | `http://localhost:5173,http://localhost:4173` | 허용할 웹 주소(쉼표 구분). 5173 = vite dev, 4173 = vite preview |
 | `PORT` | | `8080` | 서버 포트 |
+| `APP_ZONE` | | `Asia/Seoul` | 서비스 기준 시간대(`app.zone`). 기록 날짜 새벽 4시 규칙·알림 발송 시각·지난 기록 기간 계산에 쓴다. IANA 이름(`UTC`, `Asia/Seoul`, `America/New_York`). 틀린 값이면 서버가 시작되지 않는다. JVM·DB 시간대와는 별개(아래 "시간대") |
 | `PHOTO_DIR` | | `./data/photos` | 반려동물 사진 저장 폴더(`app.photo.dir`) |
 | `FCM_ENABLED` | | `false` | `true` 면 실제 FCM 으로 투약 알림 발송. `false` 면 로그 발송기(실제 발송 없이 로그만) |
 | `FCM_CREDENTIALS_BASE64` | `FCM_ENABLED=true` 일 때 필수 | 빈 값 | Firebase 서비스 계정 JSON 을 base64 로 인코딩한 값(예: `base64 -i key.json`). **환경변수로만** 넣는다(키 파일을 저장소·서버 폴더에 두지 않음). 비었거나 해석할 수 없으면 서버가 시작되지 않는다. 프로젝트 id 는 이 JSON 에서 읽는다 |
@@ -161,12 +163,13 @@ IntelliJ 에서는 실행 구성의 Environment variables 에 `DB_PASSWORD`, `JW
 | POST | `/api/med-logs` | `{"medicationId","scheduledTime":"08:00"}` | 201 `{id, medicationId, recordDate, scheduledTime, takenAt}` (일정에 없는 시각 400, 중복 409 `ALREADY_CHECKED`) |
 | DELETE | `/api/med-logs/{id}` | - | 204 (체크 취소) |
 | PUT | `/api/pets/{petId}/daily-logs/{recordDate}` | `{foodLevel, waterLevel, waterMl, weightKg, symptoms, symptomsNone, symptomOther, memo}` | 200 `DailyLog` (날짜가 현재 기록 날짜와 다르면 400 `INVALID_RECORD_DATE`) |
+| GET | `/api/pets/{petId}/daily-logs?from&to` | 생략 가능(기본 30일, 최대 90일) | 200 `{petId, from, to, recordDate, medicationBasis, days[{recordDate, dailyLog\|null, medication{scheduledCount, takenCount}}]}` (기간 오류 400 `INVALID_DATE_RANGE`). 계약서: `docs/api-history.md` |
 | POST | `/api/events` | `{"name":"today_opened"\|"med_checked"\|"daily_log_saved", "props"?:{...}}` | 202 본문 없음 (그 외 이름 400) |
 
 - `Pet` = `{id, name, species, birthYear, conditions, hasPhoto, createdAt, updatedAt}` (사진 경로는 노출하지 않음)
 - `Medication` = `{id, petId, name, doseText, times:["08:00"], active}` — times 는 오름차순으로 저장·응답
 - `DailyLog` = `{id, petId, recordDate, foodLevel, waterLevel, waterMl, weightKg, symptoms, symptomsNone, symptomOther, memo, updatedAt}`
-- **기록 날짜(새벽 4시 규칙)**: `recorddate/RecordDateCalculator` 한 곳에서만 계산한다. Asia/Seoul 기준 00:00~03:59 는 전날, 04:00 부터 당일.
+- **기록 날짜(새벽 4시 규칙)**: `recorddate/RecordDateCalculator` 한 곳에서만 계산한다. 서비스 시간대(`app.zone`, 기본 Asia/Seoul) 기준 00:00~03:59 는 전날, 04:00 부터 당일.
   `java.time.Clock` 을 주입받으므로(`common/ClockConfig`) 테스트에서 시각을 고정한다(`MutableClock`). 기준을 바꾸려면 `CUTOFF` 상수만 고친다.
 - 투약 체크의 `recordDate`·`takenAt` 은 서버가 정한다(요청에 날짜 없음). 삭제(비활성)된 약으로 체크하면 404.
 - **제안값**: `today/SuggestionService` — recordDate-7 ~ recordDate-1 중 값이 있는 날만 평균. 단계형·waterMl 은 정수 반올림(HALF_UP), weightKg 는 소수 둘째 자리.
@@ -219,6 +222,7 @@ IntelliJ 에서는 실행 구성의 Environment variables 에 `DB_PASSWORD`, `JW
 | 401 | `UNAUTHORIZED` | 토큰 없음·잘못됨·만료, 로그인 실패 |
 | 403 | `FORBIDDEN` | (예비) 권한 없음 |
 | 400 | `INVALID_RECORD_DATE` | 일일 기록 경로의 날짜가 서버의 현재 기록 날짜와 다름(형식 오류 포함) |
+| 400 | `INVALID_DATE_RANGE` | 지난 기록 조회의 from/to 형식 오류, from>to, 91일 이상, 미래 to |
 | 400 | `INVALID_FILE` | 사진 형식 오류(Content-Type·매직 바이트 불일치, 빈 파일, file 필드 없음) |
 | 404 | `NOT_FOUND` | 없는 리소스 **또는 남의 리소스** |
 | 405 | `METHOD_NOT_ALLOWED` | 지원하지 않는 메서드 |
@@ -269,7 +273,7 @@ Supabase RLS 가 없어졌으므로 **API 계층이 유일한 방어선**이다.
   디자이너 반영 필드(`symptoms_none`, `water_level`/`water_ml`, `record_date`/`taken_at`)와 CHECK 제약, 새벽 4시 규칙 COMMENT 는 그대로다.
 - **스키마 변경은 새 파일 `V2__설명.sql` 로만 한다.** 이미 적용된 V1 을 고치면 Flyway 가 체크섬 오류로 서버를 멈춘다.
 - Hibernate 는 `ddl-auto: validate` (엔티티와 테이블이 맞는지 검사만 함).
-- 기록 날짜 규칙: Asia/Seoul 기준 00:00~03:59 체크는 전날 `record_date`. 실제 시각은 `taken_at`. **서버가 계산한다**(`RecordDateCalculator`, 계약서 0-2).
+- 기록 날짜 규칙: 서비스 시간대(`app.zone`, 기본 Asia/Seoul) 기준 00:00~03:59 체크는 전날 `record_date`. 실제 시각은 `taken_at`. **서버가 계산한다**(`RecordDateCalculator`, 계약서 0-2).
 - "오늘" 화면 API 는 V1 스키마 그대로 동작한다(V2 는 투약 알림 테이블만 추가, 기존 테이블 변경 없음).
 - DB 직접 접속: `docker exec -it senior-pet-note-postgres-1 psql -U seniorpet -d seniorpet`
 
@@ -288,10 +292,11 @@ Supabase RLS 가 없어졌으므로 **API 계층이 유일한 방어선**이다.
 
 ## 테스트
 
-- 위치: `src/test/java/...` (총 113개) — `AuthApiTest`(회원가입→로그인→/api/me, 잘못된·위조 토큰 401, 중복 이메일 409, 400 검증, CORS),
+- 위치: `src/test/java/...` (총 183개) — `AuthApiTest`(회원가입→로그인→/api/me, 잘못된·위조 토큰 401, 중복 이메일 409, 400 검증, CORS),
   `PetOwnershipTest`(다른 사용자 pet 404, 목록 격리, 본문 userId 무시, 1마리 제한 409),
   `PetPhotoApiTest`(사진 업로드·조회·교체 시 이전 파일 삭제·삭제, 형식 오류 400, 5MB 초과 413, pet 수정),
   `TodayApiTest`(새벽 4시 경계 03:59/04:00 에서 today·med-logs·daily-logs 가 같은 날짜, 409, 일정 밖 시각 400, upsert, INVALID_RECORD_DATE, 증상 규칙, 제안값·직전 체중),
+  `HistoryApiTest`(기본 30일·오름차순, 04시 경계, 1/30/90일 200·91일 400, 잘못된 파라미터, 기록 없는 날 null, 투약 집계), `HistoryOwnershipTest`(남의 pet 404, 데이터 격리),
   `TodayOwnershipTest`(다른 사용자의 pet/medication/med-log/daily-log/photo 404), `EventApiTest`(허용 이름 202, 그 외 400),
   단위 테스트 `SuggestionServiceTest`(빈 데이터, 일부 항목, 1.5→2, 2.5→3, 7일 범위 밖·오늘 제외), `RecordDateCalculatorTest`(새벽 4시 규칙 + 알림 발송 시각 `slotInstant`·분 단위 회차)
 - 투약 알림: `ReminderApiTest`(설정 전 기본값, weekly 정렬·nextFireAt, 전체 교체 행 1개, 검증 400, 비활성 약 404, 약 시각 변경 반영),
@@ -302,11 +307,24 @@ Supabase RLS 가 없어졌으므로 **API 계층이 유일한 방어선**이다.
 - 푸시: `ApiTestSupport` 가 `FakePushSender` 를 `@Primary PushSender` 로 등록한다(실제 FCM 호출 0회). 테스트 프로필은 스케줄러를 끄고(`app.reminder.scheduler-enabled: false`) `dispatchDue()` 를 직접 부른다.
   발송 작업은 전 사용자의 규칙을 훑으므로 알림 테스트는 `newDisposableUserToken()` 으로 만든 사용자를 테스트 끝에 삭제한다. 단언은 자기 기기 토큰·medicationId 로 거른다.
   FCM 테스트의 서비스 계정은 실행마다 새로 만드는 가짜 RSA 키다(실제 키·네트워크 없음).
-- 시각 고정: `ApiTestSupport` 가 `MutableClock` 을 `@Primary Clock` 으로 등록한다. `setSeoulTime(2026, 10, 6, 3, 59)` 처럼 쓰고, 테스트가 끝나면 실제 시각으로 돌아간다.
+- 시각 고정: `ApiTestSupport` 가 `MutableClock` 을 `@Primary Clock` 으로 등록한다. `setSeoulTime(2026, 10, 6, 3, 59)`(기본 `app.zone`=Asia/Seoul 기준)처럼 쓰고, 테스트가 끝나면 실제 시각으로 돌아간다.
 - 사진 테스트 파일은 `${java.io.tmpdir}/seniorpet-test-photos` 에 쓴다.
 - 실제 PostgreSQL 이 필요하다: `docker compose up -d` 로 띄운 DB 안의 **`seniorpet_test`** DB 를 쓴다(개발 DB 와 분리).
   테스트는 매번 무작위 이메일로 새 사용자를 만들므로 정리 없이 반복 실행해도 된다. 비우고 싶으면 `docker compose down -v` 후 다시 `up -d`.
 - 실행 명령은 위 "2-A" / "2-B" 의 `./gradlew build` (테스트만: `./gradlew test`).
+
+## 시간대
+
+### 해결됨(2026-10-08): `med_logs.scheduled_time` 이 JVM 시간대에 따라 어긋나게 저장되던 문제
+- 원인: `hibernate.jdbc.time_zone: UTC` 때문에 Hibernate 가 스칼라 `LocalTime`(`MedLog.scheduledTime`)을 JVM 시간대 ↔ UTC 로 변환했다. JVM 이 Asia/Seoul 이면 16:25 가 07:25 로 저장됐다(`time[]` 배열과 `JdbcClient` 경로는 변환 없음).
+- 결정(대표님 지시: "시간대는 UTC 기준으로 맞추고 zone 으로 설정"):
+  - **JVM 시간대는 항상 UTC**: `SeniorPetApplication.main` 이 `TimeZone.setDefault(UTC)`, Gradle `test`/`bootRun` 은 `-Duser.timezone=UTC`. 그래서 `LocalTime` 이 JVM·서버 설정과 무관하게 입력 그대로 저장된다. `hibernate.jdbc.time_zone` 설정은 제거했다(시각 컬럼은 `timestamptz`/`time`/`time[]`/`date` 뿐이라 이득이 없고, 남기면 JVM 시간대가 달라질 때 같은 문제가 되살아난다). `spring.jackson.time-zone: UTC` 는 유지(JVM 도 UTC 라 일관).
+  - **서비스 기준 시간대는 `app.zone`**(환경변수 `APP_ZONE`, 기본 `Asia/Seoul`): 기록 날짜 새벽 4시 규칙(`RecordDateCalculator`, 컷오프 04:00 은 상수), 알림 발송 시각(`slotInstant`·`minuteSlotsBetween`), 약 시각(`medications.times`)의 현지 시각 해석, 지난 기록의 기본 기간이 모두 이 값을 쓴다. 잘못된 값이면 기동 실패. `reminder_rules` 의 `timezone` 컬럼(V1)은 코드에서 쓰지 않는다.
+  - API 의 시각은 계속 ISO-8601 UTC(`Z`), 날짜·`HH:mm` 은 `app.zone` 현지 값이다.
+- 시각 컬럼 전수: `timestamptz`(created_at 등, `fire_at`, `taken_at`)는 `Instant` 로 절대시각이라 영향 없음. 스칼라 `time` 은 `med_logs.scheduled_time`(JPA, 이번 문제)과 `reminder_dispatches.scheduled_time`(`JdbcClient` 파라미터, 변환 없음) 두 곳. `medications.times`(`time[]`)는 변환 없음. `date`(`record_date`, `start_date`, `end_date`)는 `LocalDate` 라 영향 없음.
+- 기존 DB 보정: 이전 KST JVM 에서 쓴 `med_logs.scheduled_time` 은 -9시간이다. Flyway 로 만들지 않고(환경마다 어긋난 정도가 다름) 1회성으로 `update med_logs set scheduled_time = scheduled_time + interval '9 hours'` 를 실행했다(개발 DB 1행, 테스트 DB 96행). **운영 DB 에 KST JVM 으로 쓴 행이 있다면 같은 보정이 필요하고, UTC JVM 으로 쓴 행은 보정하면 안 된다.**
+- 회귀 테스트: `TimeZoneStorageTest`(JDBC 로 직접 조회, JVM 시간대를 UTC·Seoul·New_York 으로 바꿔도 동일), `RecordDateCalculatorZoneTest`(zone 별 컷오프·slotInstant), `HistoryZoneTest`(`app.zone=America/New_York`), `AppZoneConfigTest`(기본값·잘못된 값 기동 실패).
+- 운영 시 `docker-compose.yml` 의 Postgres `TZ` 는 UTC 로 바꿨다(로그 표기만 영향. 컨테이너를 다시 만들 때 반영).
 
 ## 문제 해결
 

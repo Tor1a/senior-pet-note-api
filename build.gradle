@@ -56,7 +56,9 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
+// JVM 시간대는 UTC 로 고정한다(앱은 main 에서도 고정). 서비스 기준 시간대는 app.zone 이 정한다.
 tasks.named('test') {
+    jvmArgs '-Duser.timezone=UTC'
     useJUnitPlatform()
     testLogging {
         events 'passed', 'failed', 'skipped'
@@ -67,4 +69,8 @@ tasks.named('test') {
 // 실행 가능한 jar(bootJar) 하나만 만든다
 tasks.named('jar') {
     enabled = false
+}
+
+tasks.named('bootRun') {
+    jvmArgs '-Duser.timezone=UTC'
 }

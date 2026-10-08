@@ -14,7 +14,7 @@ import java.util.UUID;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
-/** 투약 일정 (medications 테이블). times 는 보호자 현지 시각(Asia/Seoul) 1~3개, 오름차순으로 저장한다. */
+/** 투약 일정 (medications 테이블). times 는 보호자 현지 시각(app.zone, 기본 Asia/Seoul) 1~3개, 오름차순으로 저장한다. */
 @Entity
 @Table(name = "medications")
 public class Medication {

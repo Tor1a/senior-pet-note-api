@@ -80,7 +80,7 @@ public class MedicationReminderService {
 
     private ReminderView view(Medication med, MedicationReminder r) {
         ReminderRule rule = r.toRule();
-        return new ReminderView(med, rule, rule.nextFireAt(recordDates.now(), med.getTimes()), r.getUpdatedAt());
+        return new ReminderView(med, rule, rule.nextFireAt(recordDates, recordDates.now(), med.getTimes()), r.getUpdatedAt());
     }
 
     /** DTO 어노테이션으로 못 거르는 규칙: repeat 별 필드 조합, 요일 중복, 종료일 ≥ 시작일 */

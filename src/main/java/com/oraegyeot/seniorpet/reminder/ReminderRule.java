@@ -13,7 +13,7 @@ import java.util.Set;
 /**
  * 알림 반복 규칙 판정(순수 로직, DB·시계 없음).
  * 판정 기준은 기록 날짜(record_date)다. 요일·간격·시작/종료일 모두 기록 날짜로 본다.
- * 회차(기록 날짜, 시각)의 실제 발송 시각은 RecordDateCalculator.slotInstant 가 정한다(04:00 전 시각은 다음 날).
+ * 회차(기록 날짜, 시각)의 실제 발송 시각은 recordDates.slotInstant 가 정한다(04:00 전 시각은 다음 날).
  *
  * @param enabled      false 면 어떤 날도 해당하지 않는다
  * @param daysOfWeek   WEEKLY 일 때 요일(그 외 빈 집합)
@@ -43,11 +43,11 @@ public record ReminderRule(boolean enabled, RepeatType repeat, Set<DayOfWeek> da
      * now 이후(초과) 첫 발송 예정 시각. 꺼져 있거나 종료일이 지났거나 {@value #MAX_LOOKAHEAD_DAYS}일 안에 없으면 null.
      * times = 약의 투약 시각(medications.times).
      */
-    public Instant nextFireAt(Instant now, List<LocalTime> times) {
+    public Instant nextFireAt(RecordDateCalculator recordDates, Instant now, List<LocalTime> times) {
         if (!enabled || times.isEmpty()) {
             return null;
         }
-        LocalDate today = RecordDateCalculator.recordDateOf(now);
+        LocalDate today = recordDates.recordDateOf(now);
         LocalDate from = startDate.isAfter(today) ? startDate : today;
         LocalDate to = today.plusDays(MAX_LOOKAHEAD_DAYS);
         if (endDate != null && endDate.isBefore(to)) {
@@ -59,7 +59,7 @@ public record ReminderRule(boolean enabled, RepeatType repeat, Set<DayOfWeek> da
             }
             LocalDate day = d;
             Instant next = times.stream()
-                    .map(t -> RecordDateCalculator.slotInstant(day, t))
+                    .map(t -> recordDates.slotInstant(day, t))
                     .filter(at -> at.isAfter(now))
                     .min(Comparator.naturalOrder())
                     .orElse(null);

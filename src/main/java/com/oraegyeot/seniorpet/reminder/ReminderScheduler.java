@@ -19,7 +19,7 @@ public class ReminderScheduler {
         this.dispatcher = dispatcher;
     }
 
-    @Scheduled(cron = "0 * * * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 * * * * *")
     public void tick() {
         try {
             dispatcher.dispatchDue();

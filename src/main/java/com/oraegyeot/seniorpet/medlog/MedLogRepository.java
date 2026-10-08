@@ -14,6 +14,10 @@ public interface MedLogRepository extends OwnedRepository<MedLog, UUID> {
     List<MedLog> findAllByUserIdAndRecordDateAndMedicationIdIn(UUID userId, LocalDate recordDate,
                                                                Collection<UUID> medicationIds);
 
+    /** 기간(양 끝 포함) 체크 목록("지난 기록" 화면용) */
+    List<MedLog> findAllByUserIdAndRecordDateBetweenAndMedicationIdIn(UUID userId, LocalDate from, LocalDate to,
+                                                                      Collection<UUID> medicationIds);
+
     boolean existsByUserIdAndMedicationIdAndRecordDateAndScheduledTime(UUID userId, UUID medicationId,
                                                                        LocalDate recordDate, LocalTime scheduledTime);
 }

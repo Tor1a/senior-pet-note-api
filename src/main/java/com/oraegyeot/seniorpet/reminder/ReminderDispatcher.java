@@ -69,7 +69,7 @@ public class ReminderDispatcher {
     /** 지금 보낼 회차를 모두 처리한다. */
     public void dispatchDue() {
         Instant now = recordDates.now();
-        List<Slot> slots = RecordDateCalculator.minuteSlotsBetween(now.minus(props.catchUpOrDefault()), now);
+        List<Slot> slots = recordDates.minuteSlotsBetween(now.minus(props.catchUpOrDefault()), now);
         Map<LocalTime, Slot> slotByTime = new LinkedHashMap<>();
         for (Slot s : slots) {
             slotByTime.put(s.time(), s); // 창이 24시간보다 짧으므로 시각마다 회차는 1개

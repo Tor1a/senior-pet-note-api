@@ -177,6 +177,7 @@ IntelliJ 에서는 실행 구성의 Environment variables 에 `DB_PASSWORD`, `JW
 | POST | `/api/med-logs` | `{"medicationId","scheduledTime":"08:00"}` | 201 `{id, medicationId, recordDate, scheduledTime, takenAt}` (일정에 없는 시각 400, 중복 409 `ALREADY_CHECKED`) |
 | DELETE | `/api/med-logs/{id}` | - | 204 (체크 취소) |
 | PUT | `/api/pets/{petId}/daily-logs/{recordDate}` | `{foodLevel, waterLevel, waterMl, weightKg, symptoms, symptomsNone, symptomOther, memo}` | 200 `DailyLog` (날짜가 현재 기록 날짜와 다르면 400 `INVALID_RECORD_DATE`) |
+| DELETE | `/api/pets/{petId}/daily-logs/{recordDate}` | - | 204 (오늘 기록 삭제. 기록이 없어도 204. 날짜가 현재 기록 날짜와 다르면 400 `INVALID_RECORD_DATE`). 계약서: `docs/api-undo.md` |
 | GET | `/api/pets/{petId}/daily-logs?from&to` | 생략 가능(기본 30일, 최대 90일) | 200 `{petId, from, to, recordDate, medicationBasis, days[{recordDate, dailyLog\|null, medication{scheduledCount, takenCount}}]}` (기간 오류 400 `INVALID_DATE_RANGE`). 계약서: `docs/api-history.md` |
 | POST | `/api/events` | `{"name":"today_opened"\|"med_checked"\|"daily_log_saved", "props"?:{...}}` | 202 본문 없음 (그 외 이름 400) |
 
@@ -235,7 +236,7 @@ IntelliJ 에서는 실행 구성의 Environment variables 에 `DB_PASSWORD`, `JW
 | 400 | `VALIDATION_ERROR` | 입력값 검증 실패, JSON 형식 오류 |
 | 401 | `UNAUTHORIZED` | 토큰 없음·잘못됨·만료, 로그인 실패 |
 | 403 | `FORBIDDEN` | (예비) 권한 없음 |
-| 400 | `INVALID_RECORD_DATE` | 일일 기록 경로의 날짜가 서버의 현재 기록 날짜와 다름(형식 오류 포함) |
+| 400 | `INVALID_RECORD_DATE` | 일일 기록 저장·삭제 경로의 날짜가 서버의 현재 기록 날짜와 다름(형식 오류 포함) |
 | 400 | `INVALID_DATE_RANGE` | 지난 기록 조회의 from/to 형식 오류, from>to, 91일 이상, 미래 to |
 | 400 | `INVALID_FILE` | 사진 형식 오류(Content-Type·매직 바이트 불일치, 빈 파일, file 필드 없음) |
 | 400 | `CURRENT_PASSWORD_MISMATCH` | 비밀번호 변경·탈퇴 시 비밀번호 불일치(401 아님) |
@@ -310,11 +311,12 @@ Supabase RLS 가 없어졌으므로 **API 계층이 유일한 방어선**이다.
 
 ## 테스트
 
-- 위치: `src/test/java/...` (총 250개) — `AuthApiTest`(회원가입→로그인→/api/me, 잘못된·위조 토큰 401, 중복 이메일 409, 400 검증, CORS),
+- 위치: `src/test/java/...` (총 271개) — `AuthApiTest`(회원가입→로그인→/api/me, 잘못된·위조 토큰 401, 중복 이메일 409, 400 검증, CORS),
   `PetOwnershipTest`(다른 사용자 pet 404, 목록 격리, 본문 userId 무시, 1마리 제한 409),
   `PetPhotoApiTest`(사진 업로드·조회·교체 시 이전 파일 삭제·삭제, 형식 오류 400, 5MB 초과 413, pet 수정),
   `TodayApiTest`(새벽 4시 경계 03:59/04:00 에서 today·med-logs·daily-logs 가 같은 날짜, 409, 일정 밖 시각 400, upsert, INVALID_RECORD_DATE, 증상 규칙, 제안값·직전 체중),
   `HistoryApiTest`(기본 30일·오름차순, 04시 경계, 1/30/90일 200·91일 400, 잘못된 파라미터, 기록 없는 날 null, 투약 집계), `HistoryOwnershipTest`(남의 pet 404, 데이터 격리),
+  `DailyLogDeleteApiTest`·`DailyLogDeleteZoneTest`(오늘 기록 삭제: today·history 반영·투약 체크 유지, 멱등, 04시 경계, 과거·미래·형식 오류 400, 소유권 404·401, 다른 날짜·사용자 무영향, 재저장, 동시 삭제, app.zone),
   `TodayOwnershipTest`(다른 사용자의 pet/medication/med-log/daily-log/photo 404), `EventApiTest`(허용 이름 202, 그 외 400),
   단위 테스트 `SuggestionServiceTest`(빈 데이터, 일부 항목, 1.5→2, 2.5→3, 7일 범위 밖·오늘 제외), `RecordDateCalculatorTest`(새벽 4시 규칙 + 알림 발송 시각 `slotInstant`·분 단위 회차)
 - 투약 알림: `ReminderApiTest`(설정 전 기본값, weekly 정렬·nextFireAt, 전체 교체 행 1개, 검증 400, 비활성 약 404, 약 시각 변경 반영),
@@ -351,6 +353,7 @@ Supabase RLS 가 없어졌으므로 **API 계층이 유일한 방어선**이다.
 - 사진 고아 폴더 정리: `users` 에 없는 UUID 의 사진 폴더(탈퇴 시 삭제 실패 등)를 주기적으로 정리하는 작업이 아직 없다(지금은 수동 삭제).
 - 속도 제한(비밀번호 확인 15분 5회)은 인메모리라 서버 재시작·다중 인스턴스에서 초기화/분리된다. 인스턴스를 늘리기 전에 DB·Redis 기반으로 옮겨야 한다.
 - 탈퇴 사용자 UUID 로그 정책: 사진 삭제 실패 warn 등에 탈퇴한 사용자 UUID 가 남는다(이메일·비밀번호는 남기지 않음). 보관 기간과 개인정보 해당 여부를 정해야 한다.
+- `updated_at` 은 UPDATE 때 DB 트리거(`set_updated_at`)가 `now()` 로 덮어쓴다. 그래서 일일 기록·알림 규칙·반려동물 저장 서비스는 flush 뒤 `EntityManager.refresh` 로 DB 저장값을 다시 읽어 응답한다(2026-10-12 수정; 이전엔 수정 응답이 DB 값과 약 2ms 달랐다). 새 엔티티 응답에 `updatedAt` 을 넣을 때도 같은 방식을 쓴다. 투약(`medications`) 응답에는 `updatedAt` 이 없다.
 
 ## 문제 해결
 

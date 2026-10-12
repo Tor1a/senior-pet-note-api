@@ -5,6 +5,7 @@ import com.oraegyeot.seniorpet.medication.Medication;
 import com.oraegyeot.seniorpet.medication.MedicationService;
 import com.oraegyeot.seniorpet.recorddate.RecordDateCalculator;
 import com.oraegyeot.seniorpet.reminder.MedicationReminderDtos.ReminderRequest;
+import jakarta.persistence.EntityManager;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -13,6 +14,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -29,14 +31,16 @@ public class MedicationReminderService {
     private final MedicationService medicationService;
     private final RecordDateCalculator recordDates;
     private final TransactionTemplate tx;
+    private final EntityManager em;
 
     public MedicationReminderService(MedicationReminderRepository reminderRepository,
                                      MedicationService medicationService, RecordDateCalculator recordDates,
-                                     PlatformTransactionManager txManager) {
+                                     PlatformTransactionManager txManager, EntityManager em) {
         this.reminderRepository = reminderRepository;
         this.medicationService = medicationService;
         this.recordDates = recordDates;
         this.tx = new TransactionTemplate(txManager);
+        this.em = em;
     }
 
     /** 응답 재료. updatedAt == null 이면 아직 설정하지 않은 약(기본값). */
@@ -59,7 +63,7 @@ public class MedicationReminderService {
         MedicationReminder saved;
         try {
             saved = tx.execute(s -> save(userId, med.getId(), rule));
-        } catch (DataIntegrityViolationException e) {
+        } catch (DataIntegrityViolationException | ConcurrencyFailureException e) {
             // 같은 약의 첫 설정이 동시에 들어와 unique 제약에 걸린 경우: 생긴 행을 갱신한다
             saved = tx.execute(s -> save(userId, med.getId(), rule));
         }
@@ -75,7 +79,10 @@ public class MedicationReminderService {
         } else {
             r.replace(rule, now);
         }
-        return reminderRepository.saveAndFlush(r);
+        reminderRepository.saveAndFlush(r);
+        // updated_at 은 UPDATE 때 DB 트리거가 now() 로 덮어쓴다. 응답이 저장된 값과 같도록 다시 읽는다.
+        em.refresh(r);
+        return r;
     }
 
     private ReminderView view(Medication med, MedicationReminder r) {

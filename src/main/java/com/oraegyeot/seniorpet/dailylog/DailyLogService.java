@@ -12,6 +12,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.UUID;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityNotFoundException;
+import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -24,19 +27,23 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class DailyLogService {
 
+    /** 동시 요청 충돌 시 재시도 상한(최초 시도 제외) */
+    private static final int MAX_RETRIES = 3;
     private static final BigDecimal MAX_WEIGHT = new BigDecimal("200");
 
     private final DailyLogRepository dailyLogRepository;
     private final PetService petService;
     private final RecordDateCalculator recordDates;
     private final TransactionTemplate tx;
+    private final EntityManager em;
 
     public DailyLogService(DailyLogRepository dailyLogRepository, PetService petService,
-                           RecordDateCalculator recordDates, PlatformTransactionManager txManager) {
+                           RecordDateCalculator recordDates, PlatformTransactionManager txManager, EntityManager em) {
         this.dailyLogRepository = dailyLogRepository;
         this.petService = petService;
         this.recordDates = recordDates;
         this.tx = new TransactionTemplate(txManager);
+        this.em = em;
     }
 
     /** 검증을 마친 저장 값 */
@@ -48,12 +55,25 @@ public class DailyLogService {
         petService.getOwned(userId, petId); // 부모 소유부터 검증(남의 pet = 404)
         LocalDate recordDate = checkRecordDate(recordDateText);
         Values v = validate(req);
-        try {
-            return tx.execute(s -> save(userId, petId, recordDate, v));
-        } catch (DataIntegrityViolationException e) {
-            // 같은 날 첫 저장이 동시에 두 번 들어와 unique 제약에 걸린 경우: 이미 생긴 행을 갱신한다
-            return tx.execute(s -> save(userId, petId, recordDate, v));
+        for (int attempt = 0; ; attempt++) {
+            try {
+                return tx.execute(s -> save(userId, petId, recordDate, v));
+            } catch (DataIntegrityViolationException | ConcurrencyFailureException | EntityNotFoundException e) {
+                // 동시 요청과 겹친 경우: (1) 같은 날 첫 저장이 둘 들어와 unique 제약에 걸림 -> 생긴 행을 갱신,
+                // (2) 읽은 행을 DELETE 가 먼저 지워 UPDATE 가 0행(낙관적 락 실패) -> 새로 INSERT.
+                // 새 트랜잭션에서 다시 읽어 처리하며, 상한을 넘으면 그대로 던진다(기존 오류 처리).
+                if (attempt >= MAX_RETRIES) {
+                    throw e;
+                }
+            }
         }
+    }
+
+    /** 오늘(현재 기록 날짜) 기록 삭제. 기록이 없어도 정상 종료한다(멱등). docs/api-undo.md */
+    public void delete(UUID userId, UUID petId, String recordDateText) {
+        petService.getOwned(userId, petId); // 부모 소유부터 검증(남의 pet = 404)
+        LocalDate recordDate = checkRecordDate(recordDateText);
+        tx.executeWithoutResult(s -> dailyLogRepository.deleteByPetIdAndUserIdAndRecordDate(petId, userId, recordDate));
     }
 
     private DailyLog save(UUID userId, UUID petId, LocalDate recordDate, Values v) {
@@ -61,7 +81,10 @@ public class DailyLogService {
                 .orElseGet(() -> new DailyLog(userId, petId, recordDate, recordDates.now()));
         log.replace(v.foodLevel(), v.waterLevel(), v.waterMl(), v.weightKg(), v.symptoms(),
                 v.symptomsNone(), v.symptomOther(), v.memo(), recordDates.now());
-        return dailyLogRepository.saveAndFlush(log);
+        dailyLogRepository.saveAndFlush(log);
+        // updated_at 은 DB 트리거(set_updated_at)가 now() 로 덮어쓴다. 응답이 저장된 값과 같도록 다시 읽는다.
+        em.refresh(log);
+        return log;
     }
 
     /** 경로의 날짜가 서버의 현재 기록 날짜와 같아야 한다. 형식 오류도 같은 코드로 응답한다. */

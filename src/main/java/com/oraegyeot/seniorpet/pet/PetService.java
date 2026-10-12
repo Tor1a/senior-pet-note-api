@@ -2,6 +2,7 @@ package com.oraegyeot.seniorpet.pet;
 
 import com.oraegyeot.seniorpet.common.ApiException;
 import com.oraegyeot.seniorpet.pet.PetDtos.CreatePetRequest;
+import jakarta.persistence.EntityManager;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -21,9 +22,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class PetService {
 
     private final PetRepository petRepository;
+    private final EntityManager em;
 
-    public PetService(PetRepository petRepository) {
+    public PetService(PetRepository petRepository, EntityManager em) {
         this.petRepository = petRepository;
+        this.em = em;
     }
 
     @Transactional(readOnly = true)
@@ -46,7 +49,7 @@ public class PetService {
         }
         Pet pet = new Pet(userId, req.name().trim(), req.species(), req.birthYear(), blankToNull(req.conditions()));
         try {
-            return petRepository.saveAndFlush(pet);
+            return saveAndRefresh(pet);
         } catch (DataIntegrityViolationException e) {
             throw petLimit(); // 동시 요청으로 unique 인덱스에 걸린 경우
         }
@@ -56,7 +59,7 @@ public class PetService {
     public Pet update(UUID userId, UUID petId, CreatePetRequest req) {
         Pet pet = getOwned(userId, petId);
         pet.update(req.name().trim(), req.species(), req.birthYear(), blankToNull(req.conditions()));
-        return petRepository.saveAndFlush(pet);
+        return saveAndRefresh(pet);
     }
 
     /** 사진 경로 교체 결과. oldPath 는 호출한 쪽이 DB 반영 뒤 파일을 지우는 데 쓴다. */
@@ -69,7 +72,14 @@ public class PetService {
         Pet pet = getOwned(userId, petId);
         String oldPath = pet.getPhotoPath();
         pet.changePhotoPath(newPath);
-        return new PhotoChange(petRepository.saveAndFlush(pet), oldPath);
+        return new PhotoChange(saveAndRefresh(pet), oldPath);
+    }
+
+    /** updated_at 은 DB 트리거(UPDATE)가 now() 로 덮어쓰므로, 응답이 저장된 값과 같도록 flush 뒤 다시 읽는다. */
+    private Pet saveAndRefresh(Pet pet) {
+        petRepository.saveAndFlush(pet);
+        em.refresh(pet);
+        return pet;
     }
 
     private static ApiException petLimit() {

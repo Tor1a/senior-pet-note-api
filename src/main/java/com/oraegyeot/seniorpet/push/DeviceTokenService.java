@@ -6,6 +6,7 @@ import java.time.Clock;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
@@ -43,7 +44,7 @@ public class DeviceTokenService {
     public DeviceToken register(UUID userId, DeviceRequest req) {
         try {
             return tx.execute(s -> save(userId, req.token(), req.platform()));
-        } catch (DataIntegrityViolationException e) {
+        } catch (DataIntegrityViolationException | ConcurrencyFailureException e) {
             // 같은 토큰 첫 등록이 동시에 들어와 unique 제약에 걸린 경우: 생긴 행을 갱신한다
             return tx.execute(s -> save(userId, req.token(), req.platform()));
         }

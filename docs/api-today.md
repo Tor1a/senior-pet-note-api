@@ -89,7 +89,9 @@ Medication은 `{id, petId, name, doseText, times:["08:00"], active}`이다.
   - symptomsNone이 true면 symptoms는 비어 있어야 한다
   - symptomOther는 'other'를 골랐을 때만 쓸 수 있고 30자 이하다
   - memo는 200자 이하다(화면 기준)
-- DailyLog는 `{id, petId, recordDate, foodLevel, waterLevel, waterMl, weightKg, symptoms, symptomsNone, symptomOther, memo, updatedAt}`다.
+- DailyLog는 `{id, petId, recordDate, foodLevel, waterLevel, waterMl, weightKg, symptoms, symptomsNone, symptomOther, memo, updatedAt}`다. 저장(PUT) 응답의 `updatedAt` 은 DB 에 실제 저장된 값이라 이어서 조회한 `dailyLog.updatedAt` 과 정확히 같다(비교 기준으로 쓸 수 있음).
+
+- 오늘 기록 삭제(저장 되돌리기)는 `docs/api-undo.md`.
 
 ## 6. 지표 이벤트
 `POST /api/events` `{name, props?}` → 202 (본문 없음)

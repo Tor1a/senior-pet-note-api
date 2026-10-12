@@ -47,6 +47,10 @@ public class FcmPushSender implements PushSender, DisposableBean {
     /** 웹 알림 아이콘(클라이언트 PWA 아이콘) */
     static final String WEB_ICON = "/pwa-192x192.png";
 
+    /** 웹 알림 액션 버튼(1개). 서비스워커가 event.action 으로 구분해 POST /api/med-logs 로 체크한다. 모르는 옛 서비스워커는 버튼 없이 동작. */
+    static final String WEB_ACTION_TAKEN = "taken";
+    static final String WEB_ACTION_TAKEN_TITLE = "먹였어요";
+
     private final FirebaseApp app;
     private final FirebaseMessaging messaging;
     private final Clock clock;
@@ -177,6 +181,7 @@ public class FcmPushSender implements PushSender, DisposableBean {
                         .setNotification(WebpushNotification.builder()
                                 .setTag(message.collapseKey())
                                 .setIcon(WEB_ICON)
+                                .addAction(new WebpushNotification.Action(WEB_ACTION_TAKEN, WEB_ACTION_TAKEN_TITLE))
                                 .build())
                         .build())
                 .build();

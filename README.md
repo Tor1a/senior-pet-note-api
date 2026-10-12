@@ -225,7 +225,7 @@ IntelliJ 에서는 실행 구성의 Environment variables 에 `DB_PASSWORD`, `JW
 - 소급 방지 기준(규칙·약 수정 시각)은 UPDATE 트리거의 DB `now()` 다. 앱 서버와 DB 시계가 어긋나면 경계 회차 판정이 달라질 수 있다.
 - `app.reminder.catch-up` 은 24시간 미만이어야 한다(넘으면 서버 시작 실패). 푸시 본문은 반려동물 10자·약 20자·용량 10자로 말줄임.
 - 발송기: `FCM_ENABLED=true` → `FcmPushSender`(firebase-admin, `sendEachForMulticast`), 기본값 → `LoggingPushSender`(토큰 앞 8자만 로그). 테스트 → `FakePushSender`.
-- 푸시 문구: 제목 "투약 시간이에요", 본문 "{반려동물} · {약} {용량}", `data` = `type, medicationId, petId, recordDate, scheduledTime` (상세: `docs/api-reminders.md` 4절).
+- 푸시 문구: 제목 "투약 시간이에요", 본문 "{반려동물} · {약} {용량}", `data` = `type, medicationId, petId, recordDate, scheduledTime`, 웹 푸시에만 액션 버튼 1개(`taken` / `먹였어요`) (상세: `docs/api-reminders.md` 4절).
 
 ### 오류 응답
 

@@ -3,9 +3,16 @@ package com.oraegyeot.seniorpet.push;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.google.api.client.json.gson.GsonFactory;
 import com.google.firebase.FirebaseApp;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.firebase.messaging.Message;
 import com.google.firebase.messaging.MessagingErrorCode;
+import java.lang.reflect.Method;
 import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -56,5 +63,64 @@ class FcmPushSenderTest {
             sender.destroy();
         }
         assertThat(FirebaseApp.getApps()).noneMatch(a -> a.getName().equals(FcmPushSender.APP_NAME));
+    }
+
+    @Test
+    void 웹_푸시에_먹였어요_액션_1개가_있고_나머지_설정은_그대로다() throws Exception {
+        FcmPushSender sender = new FcmPushSender(new FcmProperties(true, FakeServiceAccount.base64()),
+                Clock.fixed(Instant.parse("2026-10-12T00:00:00Z"), ZoneOffset.UTC));
+        try {
+            String collapseKey = "11111111-1111-1111-1111-111111111111:2026-10-12:08:00";
+            Map<String, String> data = Map.of("type", "med_reminder", "medicationId", "m1", "petId", "p1",
+                    "recordDate", "2026-10-12", "scheduledTime", "08:00");
+            var multicast = sender.buildMessage(List.of("token-a"),
+                    new PushMessage("투약 시간이에요", "초코 · 아조딜 1캡슐", data, collapseKey));
+            Method m = multicast.getClass().getDeclaredMethod("getMessageList");
+            m.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            List<Message> messages = (List<Message>) m.invoke(multicast);
+            assertThat(messages).hasSize(1);
+            JsonNode json = new ObjectMapper().valueToTree(toMap(messages.get(0)));
+
+            JsonNode web = json.get("webpush");
+            assertThat(web.get("notification").get("actions")).hasSize(1);
+            assertThat(web.get("notification").get("actions").get(0).get("action").asText()).isEqualTo("taken");
+            assertThat(web.get("notification").get("actions").get(0).get("title").asText()).isEqualTo("먹였어요");
+            assertThat(web.get("notification").get("tag").asText()).isEqualTo(collapseKey);
+            assertThat(web.get("notification").get("icon").asText()).isEqualTo("/pwa-192x192.png");
+            assertThat(web.get("headers").get("TTL").asText()).isEqualTo("3600");
+
+            assertThat(json.get("notification").get("title").asText()).isEqualTo("투약 시간이에요");
+            assertThat(json.get("notification").get("body").asText()).isEqualTo("초코 · 아조딜 1캡슐");
+            assertThat(new ObjectMapper().convertValue(json.get("data"), Map.class)).isEqualTo(data);
+
+            JsonNode android = json.get("android");
+            assertThat(android.get("priority").asText()).isEqualTo("high");
+            assertThat(android.get("ttl").asText()).isEqualTo("3600s");
+            assertThat(android.get("collapse_key").asText()).isEqualTo(collapseKey);
+            assertThat(android.has("notification")).isFalse();
+            JsonNode apns = json.get("apns");
+            assertThat(apns.get("headers").get("apns-priority").asText()).isEqualTo("10");
+            assertThat(apns.get("headers").get("apns-collapse-id").asText()).isEqualTo(collapseKey);
+            assertThat(apns.get("headers").get("apns-expiration").asText()).isEqualTo(String.valueOf(Instant.parse("2026-10-12T01:00:00Z").getEpochSecond()));
+            assertThat(apns.get("payload").get("aps").get("sound").asText()).isEqualTo("default");
+            assertThat(apns.get("payload").get("aps").size()).isEqualTo(1);
+        } finally {
+            sender.destroy();
+        }
+    }
+
+    /** Message 의 package-private wrapForTransport() 와 firebase-admin 이 쓰는 JSON 직렬화로 FCM 요청 본문(message 부분)을 얻는다. */
+    private static Map<String, Object> toMap(Message message) throws Exception {
+        Method wrap = Message.class.getDeclaredMethod("wrapForTransport", boolean.class);
+        wrap.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> request = (Map<String, Object>) wrap.invoke(message, false);
+        String body = GsonFactory.getDefaultInstance().toString(request);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> parsed = new ObjectMapper().readValue(body, Map.class);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> inner = (Map<String, Object>) parsed.get("message");
+        return inner;
     }
 }

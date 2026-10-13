@@ -70,3 +70,8 @@ app:
     scheduler-enabled: ${REMINDER_SCHEDULER_ENABLED:true}
     # 발송 시각이 지난 회차를 늦게라도 보내는 최대 지연(서버 재시작·지연 대비). 그보다 오래된 회차는 버린다
     catch-up: PT10M
+  todo:
+    # 내 할 일 알림 시각(app.zone 현지 시각, yml 전용). 하루 전·당일 2회. 04:00 보다 이르면 서버가 시작되지 않는다
+    # (기록 날짜 새벽 4시 규칙과 어긋나 하루 늦게 울리는 것을 막는다). 발송 스케줄러 on/off·catch-up 은 app.reminder.* 를 함께 쓴다
+    day-before-time: "20:00"
+    due-day-time: "09:00"

@@ -47,7 +47,10 @@ public class FcmPushSender implements PushSender, DisposableBean {
     /** 웹 알림 아이콘(클라이언트 PWA 아이콘) */
     static final String WEB_ICON = "/pwa-192x192.png";
 
-    /** 웹 알림 액션 버튼(1개). 서비스워커가 event.action 으로 구분해 POST /api/med-logs 로 체크한다. 모르는 옛 서비스워커는 버튼 없이 동작. */
+    /** 투약 알림의 data.type. [먹였어요] 웹 액션은 이 타입에만 붙인다(할 일 알림 등 다른 알림에는 붙이지 않는다). */
+    static final String DATA_TYPE_MED_REMINDER = "med_reminder";
+
+    /** 웹 알림 액션 버튼(1개, 투약 알림에만). 서비스워커가 event.action 으로 구분해 POST /api/med-logs 로 체크한다. 모르는 옛 서비스워커는 버튼 없이 동작. */
     static final String WEB_ACTION_TAKEN = "taken";
     static final String WEB_ACTION_TAKEN_TITLE = "먹였어요";
 
@@ -161,6 +164,12 @@ public class FcmPushSender implements PushSender, DisposableBean {
     @SuppressWarnings("deprecation")
     MulticastMessage buildMessage(List<String> tokens, PushMessage message) {
         long expiresAt = clock.instant().plus(TTL).getEpochSecond();
+        WebpushNotification.Builder web = WebpushNotification.builder()
+                .setTag(message.collapseKey())
+                .setIcon(WEB_ICON);
+        if (isMedReminder(message)) {
+            web.addAction(new WebpushNotification.Action(WEB_ACTION_TAKEN, WEB_ACTION_TAKEN_TITLE));
+        }
         return MulticastMessage.builder()
                 .addAllTokens(tokens)
                 .setNotification(Notification.builder().setTitle(message.title()).setBody(message.body()).build())
@@ -178,13 +187,13 @@ public class FcmPushSender implements PushSender, DisposableBean {
                         .build())
                 .setWebpushConfig(WebpushConfig.builder()
                         .putHeader("TTL", String.valueOf(TTL.toSeconds()))
-                        .setNotification(WebpushNotification.builder()
-                                .setTag(message.collapseKey())
-                                .setIcon(WEB_ICON)
-                                .addAction(new WebpushNotification.Action(WEB_ACTION_TAKEN, WEB_ACTION_TAKEN_TITLE))
-                                .build())
+                        .setNotification(web.build())
                         .build())
                 .build();
+    }
+
+    private static boolean isMedReminder(PushMessage message) {
+        return message.data() != null && DATA_TYPE_MED_REMINDER.equals(message.data().get("type"));
     }
 
     @Override

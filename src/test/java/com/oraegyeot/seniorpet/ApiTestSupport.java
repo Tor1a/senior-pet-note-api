@@ -168,6 +168,18 @@ public abstract class ApiTestSupport {
         return call(jsonPut("/api/medications/" + medicationId + "/reminder", body), token, 200);
     }
 
+    /** 할 일을 등록(POST, 알림 켬)하고 응답 JSON 을 돌려준다. dueTime 은 null 이면 보내지 않는다. */
+    protected JsonNode createTodo(String token, String petId, String title, String dueDate, String dueTime)
+            throws Exception {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("title", title);
+        body.put("dueDate", dueDate);
+        if (dueTime != null) {
+            body.put("dueTime", dueTime);
+        }
+        return call(jsonPost("/api/pets/" + petId + "/todos", body), token, 201);
+    }
+
     /** 기기 토큰을 등록하고 기기 id 를 돌려준다. */
     protected String registerDevice(String token, String deviceToken, String platform) throws Exception {
         return call(jsonPut("/api/devices", Map.of("token", deviceToken, "platform", platform)), token, 200)

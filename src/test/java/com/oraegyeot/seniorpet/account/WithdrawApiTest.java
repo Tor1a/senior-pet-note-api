@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.oraegyeot.seniorpet.ApiTestSupport;
 import com.oraegyeot.seniorpet.reminder.ReminderDispatcher;
+import com.oraegyeot.seniorpet.todo.TodoDispatcher;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -22,9 +23,9 @@ import org.springframework.mock.web.MockMultipartFile;
 /** POST /api/me/withdraw (docs/api-account.md 2절). 알림 테스트처럼 임시 사용자를 쓰고 끝나면 지운다. */
 class WithdrawApiTest extends ApiTestSupport {
 
-    /** user_id 컬럼으로 직접 지워지는 테이블 전부(V1·V2 의 users 자식) */
+    /** user_id 컬럼으로 직접 지워지는 테이블 전부(V1·V2·V4 의 users 자식) */
     private static final List<String> TABLES = List.of("pets", "medications", "med_logs", "daily_logs", "events",
-            "medication_reminders", "device_tokens", "reminder_dispatches");
+            "medication_reminders", "device_tokens", "reminder_dispatches", "todos", "todo_dispatches");
 
     private static final byte[] JPEG = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0, 1, 2, 3, 4};
 
@@ -33,6 +34,9 @@ class WithdrawApiTest extends ApiTestSupport {
 
     @Autowired
     private ReminderDispatcher dispatcher;
+
+    @Autowired
+    private TodoDispatcher todoDispatcher;
 
     private record Data(String token, UUID userId, String email, String petId, String medId, String fcm) {
     }
@@ -56,6 +60,11 @@ class WithdrawApiTest extends ApiTestSupport {
         call(jsonPost("/api/med-logs", Map.of("medicationId", med, "scheduledTime", "08:00")), token, 201);
         call(jsonPut("/api/pets/" + pet + "/daily-logs/2026-10-12", Map.of("foodLevel", 2, "memo", "잘 먹음")),
                 token, 200);
+        // 할 일 + 발송 기록(todos, todo_dispatches 행 생성): 07:00 등록 → 당일 09:00 알림
+        setSeoulTime(2026, 10, 12, 7, 0);
+        call(jsonPost("/api/pets/" + pet + "/todos", Map.of("title", "접종", "dueDate", "2026-10-12")), token, 201);
+        setSeoulTime(2026, 10, 12, 9, 0);
+        todoDispatcher.dispatchDue();
         mvc.perform(multipart("/api/pets/" + pet + "/photo")
                         .file(new MockMultipartFile("file", "p.bin", "image/jpeg", JPEG))
                         .with(r -> {
@@ -182,5 +191,7 @@ class WithdrawApiTest extends ApiTestSupport {
         dispatcher.dispatchDue();
         assertThat(pushSender.sentTo(d.fcm())).isEmpty();
         assertThat(count("reminder_dispatches", d.userId())).isZero();
+        todoDispatcher.dispatchDue();
+        assertThat(count("todo_dispatches", d.userId())).isZero();
     }
 }

@@ -28,11 +28,13 @@ senior-pet-note-api/
    ├─ history/   지난 기록 조회(기간별 일일 기록 + 투약 집계)
    ├─ today/     "오늘" 화면 조회 + 제안값 계산(SuggestionService)
    ├─ reminder/  투약 알림 규칙 API + 1분 주기 발송 작업(ReminderDispatcher, ReminderScheduler)
+   ├─ todo/      내 할 일 일정 API + 하루 전·당일 알림 발송 작업(TodoDispatcher, TodoScheduler, docs/api-todos.md)
    ├─ push/      기기 토큰 API + 푸시 발송기(PushSender: FCM / 로그)
    └─ event/     지표 이벤트
    src/main/resources/db/migration/V1__init_schema.sql   초기 스키마
    src/main/resources/db/migration/V2__medication_reminders_and_device_tokens.sql   투약 알림·기기 토큰
    src/main/resources/db/migration/V3__user_token_version.sql   users.token_version (비밀번호 변경 시 토큰 무효화)
+   src/main/resources/db/migration/V4__todos.sql   내 할 일 일정(todos, todo_dispatches)
 ```
 
 ## 실행 방법
@@ -214,6 +216,26 @@ IntelliJ 에서는 실행 구성의 Environment variables 에 `DB_PASSWORD`, `JW
   계산은 `RecordDateCalculator.slotInstant` 한 곳에서만 한다. 반복 규칙은 알림에만 적용되고 "오늘" 화면은 그대로다(`docs/api-today.md` 변경 없음).
 - 클라이언트는 로그아웃 직전에 `DELETE /api/devices/{id}` 를 호출해야 한다(서버에 로그아웃 API 없음).
 
+### 내 할 일 일정 API — 계약서: `docs/api-todos.md` (클라이언트와 합의 대상)
+
+모든 API 로그인 필요. 남의 리소스·없는 리소스는 404 `NOT_FOUND`. 새 오류 코드는 `TODO_LIMIT_REACHED` 하나. 서비스는 일정·주기를 정하거나 추천하지 않는다(보호자 입력값만 저장·알림).
+
+| 메서드 | 경로 | 요청 | 성공 응답 |
+|--------|------|------|-----------|
+| GET | `/api/pets/{petId}/todos?status=open\|done` | `status` 생략 = `open` | 200 `{recordDate, todos:[Todo]}` (`open`: 날짜→시각(없으면 뒤)→등록순, `done`: 최근 완료 순 최대 100개). 값 오류 400 |
+| POST | `/api/pets/{petId}/todos` | `TodoInput` | 201 `Todo` |
+| PUT | `/api/todos/{id}` | `TodoInput` (전체 교체, 완료 상태는 유지) | 200 `Todo` |
+| PUT | `/api/todos/{id}/completion` | `{"completed": true\|false}` | 200 `Todo` (멱등. 이미 완료에 `true` 를 다시 보내면 최초 `completedAt` 유지) |
+| DELETE | `/api/todos/{id}` | - | 204 (실제 삭제. 남의 것·없는 것 404) |
+
+- `TodoInput` = `{title(공백 제외 1~40자), dueDate(기록 날짜 -400일~+730일), dueTime?("HH:mm"), memo?(≤200), hospitalNote?(≤500), remind?(기본 true)}`. 길이는 코드 포인트 기준, 빈 메모는 null 로 저장
+- `Todo` = `{id, petId, title, dueDate, dueTime, memo, hospitalNote, remind, completed, completedAt, dateStatus:"past"|"today"|"tomorrow"|"future", createdAt, updatedAt}`
+  - `dateStatus` 는 서버가 현재 기록 날짜(새벽 4시 규칙)와 `dueDate` 를 비교해 계산한다(클라이언트는 날짜 계산 안 함)
+- 사용자당 최대 300개(완료 포함). 301번째 등록은 409 `TODO_LIMIT_REACHED`
+- 알림: 하루 전 20:00·당일 09:00(서울, `app.todo.day-before-time` / `app.todo.due-day-time`, 04:00 미만이면 서버 시작 실패). `TodoScheduler` 가 매 분 `TodoDispatcher.dispatchDue()` 를 부른다(켜짐 조건은 `app.reminder.scheduler-enabled`, 늦게 보내는 한도는 `app.reminder.catch-up` 을 그대로 쓴다).
+  - 중복 방지: `todo_dispatches` 의 `unique (todo_id, kind, due_date)` 에 `insert ... on conflict do nothing` 으로 선점한 경우에만 보낸다(최대 1회). 완료·`remind=false`·삭제된 할 일은 보내지 않고, 등록·수정 시각 이전의 알림 시각은 소급해서 보내지 않는다. 선점 뒤 완료되면 `skipped_done`, 기기가 없으면 `no_device`.
+  - 푸시 문구: 제목 "내일 일정이 있어요" / "오늘 일정이 있어요", 본문 "{반려동물} · {제목}"(+ " · 14:30"), `data` = `type="todo_reminder", todoId, petId, dueDate, kind, dueTime?`. 메모·병원 메모·제목은 data 에 싣지 않는다. 웹 푸시의 [먹였어요] 버튼은 `med_reminder` 에만 붙는다(`FcmPushSender`).
+
 ### 투약 알림 발송 (구현됨: `reminder/ReminderDispatcher`, `push/`)
 
 - `ReminderScheduler` 가 매 분 0초(서울) `ReminderDispatcher.dispatchDue()` 를 부른다. 스케줄러 스레드는 1개(순차 처리).
@@ -246,6 +268,7 @@ IntelliJ 에서는 실행 구성의 Environment variables 에 `DB_PASSWORD`, `JW
 | 409 | `EMAIL_TAKEN` | 이미 가입된 이메일 |
 | 409 | `PET_LIMIT_REACHED` | 반려동물 2마리째 등록 시도 |
 | 409 | `ALREADY_CHECKED` | 이미 체크한 투약 회차 |
+| 409 | `TODO_LIMIT_REACHED` | 사용자당 할 일 300개(완료 포함)에 도달한 뒤 등록 시도 |
 | 413 | `FILE_TOO_LARGE` | 사진 5MB 초과 |
 | 429 | `TOO_MANY_ATTEMPTS` | 비밀번호 확인 연속 실패 한도 초과(`Retry-After` 초) |
 | 500 | `INTERNAL_ERROR` | 서버 오류 |
@@ -273,16 +296,20 @@ Supabase RLS 가 없어졌으므로 **API 계층이 유일한 방어선**이다.
 6. **새 공개(비로그인) API 는 `SecurityConfig` 에 명시적으로 추가해야만 열린다.** 기본값은 "로그인 필요".
 7. **테스트 필수:** 리소스마다 "다른 사용자의 id 로 접근하면 404, 목록에 안 보임" 테스트를 넣는다 (`PetOwnershipTest` 참고).
 8. 탈퇴(users 삭제)한 사용자의 토큰은 보안 필터에서 거부된다. 데이터는 `on delete cascade` 로 함께 삭제된다.
-9. **예외: 시스템 작업(투약 알림 발송).** 발송은 사용자 요청이 아니라 전 사용자 대상 작업이라 1~3번을 그대로 적용할 수 없다.
+9. **예외: 시스템 작업(투약 알림·할 일 알림 발송).** 발송은 사용자 요청이 아니라 전 사용자 대상 작업이라 1~3번을 그대로 적용할 수 없다.
    - user_id 조건 없는 쿼리는 `reminder/ReminderDispatchQueries` 한 곳에만 둔다. 이 빈은 **`ReminderDispatcher` 에서만 주입한다**(컨트롤러·사용자 서비스 주입 금지).
      발송기가 사용자 데이터를 더 다룰 때는 userId 를 받는 기존 메서드(`MedLogRepository.exists...ByUserId...`, `DeviceTokenService.tokensOf/removeInvalid(userId, ...)`)를 쓴다.
    - 기기 토큰 이전(다른 사용자에게 등록된 같은 토큰 삭제)도 이 예외다. `DeviceTokenRepository.deleteByTokenAndUserIdNot` 은 `DeviceTokenService.register` 에서만 부르고, 응답에 다른 사용자 존재 여부를 드러내지 않는다(항상 200).
    - 확인 방법: `grep -rnE "ReminderDispatchQueries [a-z]" src/main` (필드·생성자 파라미터 선언) 결과가 `ReminderDispatcher` 뿐이어야 한다.
+   - 할 일 알림도 같다: user_id 조건 없는 쿼리는 `todo/TodoDispatchQueries` 한 곳, **`TodoDispatcher` 에서만 주입**. 확인: `grep -rnE "(Reminder|Todo)DispatchQueries [a-z]" src/main` 결과가 각각 `ReminderDispatcher`, `TodoDispatcher` 뿐이어야 한다.
 
 ## 데이터베이스
 
 - 스키마: `src/main/resources/db/migration/V1__init_schema.sql` — users, pets, medications, med_logs, daily_logs, push_subscriptions, events
 - `V3__user_token_version.sql` — `users.token_version integer not null default 0`(비밀번호 변경 시 +1, JWT `ver` 와 비교)
+- `V4__todos.sql` — 내 할 일 일정
+  - `todos`: 보호자가 입력한 할 일. `(pet_id, user_id)` → `pets (id, user_id)` 복합 FK(cascade), `unique (id, user_id)`, 제목 `char_length(btrim(title)) between 1 and 40`·메모 200자·병원 메모 500자 CHECK, `due_time time`, `completed_at`(null = 미완료)
+  - `todo_dispatches`: 발송 기록(중복 방지 겸 감사 로그). `unique (todo_id, kind, due_date)` = `todo_dispatches_once_per_slot`, `kind` day_before|due_day, `status` claimed|sent|failed|skipped_done|no_device. 보관 기간 무기한(MVP)
 - `V2__medication_reminders_and_device_tokens.sql` — 투약 알림
   - `medication_reminders`: 약별 알림 규칙(약 1개당 1행, `unique (medication_id)`). `repeat_type`·`days_of_week smallint[]`(ISO 1=월…7=일)·`interval_days` 조합을 CHECK 로 강제, `end_date >= start_date`
   - `device_tokens`: FCM 토큰(`token` 전역 unique, platform android|ios|web, `last_seen_at`)
@@ -311,7 +338,7 @@ Supabase RLS 가 없어졌으므로 **API 계층이 유일한 방어선**이다.
 
 ## 테스트
 
-- 위치: `src/test/java/...` (총 271개) — `AuthApiTest`(회원가입→로그인→/api/me, 잘못된·위조 토큰 401, 중복 이메일 409, 400 검증, CORS),
+- 위치: `src/test/java/...` (총 347개) — `AuthApiTest`(회원가입→로그인→/api/me, 잘못된·위조 토큰 401, 중복 이메일 409, 400 검증, CORS),
   `PetOwnershipTest`(다른 사용자 pet 404, 목록 격리, 본문 userId 무시, 1마리 제한 409),
   `PetPhotoApiTest`(사진 업로드·조회·교체 시 이전 파일 삭제·삭제, 형식 오류 400, 5MB 초과 413, pet 수정),
   `TodayApiTest`(새벽 4시 경계 03:59/04:00 에서 today·med-logs·daily-logs 가 같은 날짜, 409, 일정 밖 시각 400, upsert, INVALID_RECORD_DATE, 증상 규칙, 제안값·직전 체중),
@@ -323,7 +350,11 @@ Supabase RLS 가 없어졌으므로 **API 계층이 유일한 방어선**이다.
   `DeviceApiTest`(등록, 재등록 시 행 1개·lastSeenAt 갱신, 다른 사용자 토큰 이전, 11번째 등록 시 가장 오래된 것 삭제, 검증 400, 삭제),
   `ReminderOwnershipTest`(다른 사용자의 약 알림·기기 404, 본문 userId 무시), `ReminderSchemaTest`(V2 CHECK·유니크 제약),
   `ReminderDispatchTest`(정시 발송·문구·data, 중복 호출·동시 호출 1건, skipped_taken, no_device, 02:00 회차, 규칙 불일치·꺼짐·비활성·시작 전·종료 후, 지연 9분 발송·10분/11분 버림, 소급 방지, 무효 토큰 삭제, 전체 실패, 예외 격리),
-  단위 테스트 `ReminderRuleTest`(daily/weekly/interval, 시작·종료일, 02:00 회차 요일, nextFireAt), `FcmPushSenderTest`(오류 코드 매핑, 자격증명 오류, 가짜 키로 초기화), `PushSenderConfigTest`(FCM_ENABLED 에 따른 발송기 선택·시작 실패)
+  단위 테스트 `ReminderRuleTest`(daily/weekly/interval, 시작·종료일, 02:00 회차 요일, nextFireAt), `FcmPushSenderTest`(오류 코드 매핑, 자격증명 오류, 가짜 키로 초기화, 웹 액션 버튼은 med_reminder 에만), `PushSenderConfigTest`(FCM_ENABLED 에 따른 발송기 선택·시작 실패)
+- 내 할 일: `TodoApiTest`(등록 왕복·빈 메모 null, 전체 교체·완료 유지, 완료/되돌리기 멱등·최초 completedAt, 삭제, 정렬, done 100개, dateStatus 4종·04시 경계, 검증 400(제목·날짜 -400/+730·시각·메모 길이·status), 300개 한도 409, updatedAt = DB 값, 401),
+  `TodoOwnershipTest`(남의 pet 등록·목록 404, 남의 todo 수정·완료·삭제 404, 목록 격리, 본문 userId·petId 무시), `TodoSchemaTest`(V4 CHECK·유니크·복합 FK·cascade), `TodoTimeZoneStorageTest`(due_time 이 JVM 시간대와 무관),
+  `TodoDispatchTest`(하루 전/당일 발송·문구·data, 시각 유무, 중복·동시 호출 1건, 완료·remind=false·삭제·과거 날짜 제외, 되돌리기 재개, no_device, catch-up 9분/10분, 소급 방지, 날짜 수정 시 재알림, 메모 비노출, 말줄임, 무효 토큰, 예외 격리, 탈퇴),
+  `TodoDispatchRaceTest`(선점 뒤 완료 skipped_done, 삭제·탈퇴 경합 FK 건너뜀, 비FK 오류 재던짐), 단위 테스트 `TodoPushTextTest`(제목·본문 조립, 금지어 목록(기존 findForbidden + 권유형 추가 목록) 통과, data 에 제목 없음), `TodoConfigTest`(알림 시각 04:00 미만이면 기동 실패)
 - 계정: `PasswordChangeApiTest`(성공·불일치 400·규칙 위반·같은 비밀번호·한글 72바이트 경계·변경 후 이전 토큰 401·ver 없는 기존 토큰), `WithdrawApiTest`(모든 자식 테이블 행 0·사진 삭제·불일치 400 데이터 유지·확인 플래그·타인 영향 없음·탈퇴 후 401·재가입),
   `PasswordAttemptLimitTest`(5회 후 429·15분 후 해제·성공 시 초기화, MutableClock), `ReminderClaimDeletedUserTest`(탈퇴 경합: claim FK 위반 건너뜀), `LocalPhotoStorageDeleteAllTest`(사용자 폴더만 삭제·심볼릭 링크 미추적).
 - 푸시: `ApiTestSupport` 가 `FakePushSender` 를 `@Primary PushSender` 로 등록한다(실제 FCM 호출 0회). 테스트 프로필은 스케줄러를 끄고(`app.reminder.scheduler-enabled: false`) `dispatchDue()` 를 직접 부른다.

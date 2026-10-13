@@ -51,10 +51,10 @@ class DailyLogDeleteApiTest extends ApiTestSupport {
 
     @Test
     void 오늘_기록_삭제하면_today와_history에서_사라지고_투약_체크는_그대로다() throws Exception {
+        setSeoulTime(2026, 10, 12, 12, 0); // 약 등록 전에 고정: 지난 기록 집계는 약 등록일(created_at) 이전 날짜를 세지 않는다
         String t = newUserToken();
         String pet = createPet(t);
         String med = createMedication(t, pet, List.of("08:00"));
-        setSeoulTime(2026, 10, 12, 12, 0);
         call(jsonPost("/api/med-logs", Map.of("medicationId", med, "scheduledTime", "08:00")), t, 201);
         put(t, pet, "2026-10-12");
         assertThat(todayOf(t, pet).get("dailyLog").isNull()).isFalse();

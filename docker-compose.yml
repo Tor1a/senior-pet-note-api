@@ -1,4 +1,4 @@
-# 시니어펫 노트 개발용 인프라 (운영용 아님)
+# 오래곁 개발용 인프라 (운영용 아님)
 # - PostgreSQL 17, 호스트 포트 5433 (이 PC의 5432 는 다른 컨테이너가 사용 중)
 # - 비밀번호는 같은 폴더의 .env 의 POSTGRES_PASSWORD 로 받는다 (.env.example 참고)
 # 실행: docker compose up -d   /   중지: docker compose down   (데이터까지 삭제: down -v)

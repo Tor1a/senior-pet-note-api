@@ -1,4 +1,4 @@
-# 시니어펫 노트 — 백엔드 API (Java / Spring Boot)
+# 오래곁 — 백엔드 API (Java / Spring Boot)
 
 > 웹·앱 클라이언트는 별도 저장소 `senior-pet-note-client` 에 있다. 저장소 분리 근거: 분리 전 통합 저장소의 회사 문서 `docs/decisions/2026-10-07-저장소-분리.md` (이 저장소에는 없음)
 

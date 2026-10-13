@@ -1,4 +1,4 @@
-// 시니어펫 노트 백엔드 (Spring Boot 3.x, Java 21)
+// 오래곁 백엔드 (Spring Boot 3.x, Java 21)
 plugins {
     id 'java'
     id 'org.springframework.boot' version '3.5.6'

@@ -6,7 +6,9 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import com.oraegyeot.seniorpet.common.PatchTextInput;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 
 /** 반려동물 API 요청·응답. 요청에 userId 필드는 없다(로그인 사용자로 정해짐). */
@@ -27,7 +29,11 @@ public final class PetDtos {
             @Max(value = 2100, message = "출생 연도는 2100 이하여야 합니다.")
             Short birthYear,
             @Size(max = 200, message = "질환은 200자 이하여야 합니다.")
-            String conditions) {
+            String conditions,
+            // 아래 3개: POST 생략 = null, PUT 생략 = 기존 값 유지, 명시적 null = 지움 (docs/api-pet-profile.md)
+            PatchTextInput profileType,
+            PatchTextInput birthDate,
+            PatchTextInput adoptedOn) {
     }
 
     /** 반려동물 응답. photo_path(내부 경로)는 노출하지 않고 사진 유무만 알려 준다. */
@@ -38,12 +44,16 @@ public final class PetDtos {
             Short birthYear,
             String conditions,
             boolean hasPhoto,
+            String profileType,
+            LocalDate birthDate,
+            LocalDate adoptedOn,
             Instant createdAt,
             Instant updatedAt) {
 
         public static PetResponse from(Pet p) {
             return new PetResponse(p.getId(), p.getName(), p.getSpecies(), p.getBirthYear(),
-                    p.getConditions(), p.getPhotoPath() != null, p.getCreatedAt(), p.getUpdatedAt());
+                    p.getConditions(), p.getPhotoPath() != null,
+                    p.getProfileType(), p.getBirthDate(), p.getAdoptedOn(), p.getCreatedAt(), p.getUpdatedAt());
         }
     }
 }

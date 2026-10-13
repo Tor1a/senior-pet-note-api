@@ -50,6 +50,8 @@ class WithdrawApiTest extends ApiTestSupport {
         // 테스트 도중 실패해도 지워지도록 등록(탈퇴 후에는 0행 삭제라 무해)
         registerForCleanup(userId);
         String pet = createPet(token);
+        call(jsonPut("/api/pets/" + pet, Map.of("name", "초코", "species", "dog", "birthYear", 2015,
+                "birthDate", "2015-03-02", "adoptedOn", "2016-01-10", "profileType", "first_time")), token, 200);
         String med = createMedication(token, pet, List.of("08:00"));
         putReminder(token, med, Map.of("enabled", true, "repeat", "daily"));
         String fcm = "fcm-" + UUID.randomUUID();
@@ -101,6 +103,9 @@ class WithdrawApiTest extends ApiTestSupport {
         }
         assertThat(jdbc.sql("select count(*) from daily_logs where user_id = :u and walk_count = 2 and poop_count = 3")
                 .param("u", d.userId()).query(Long.class).single()).as("루틴 값이 있는 일일 기록").isEqualTo(1);
+        assertThat(jdbc.sql("select count(*) from pets where user_id = :u and profile_type = 'first_time'"
+                        + " and birth_date is not null and adopted_on is not null")
+                .param("u", d.userId()).query(Long.class).single()).as("유형·생일·입양일이 있는 pet").isEqualTo(1);
         assertThat(Files.list(photoFolder(d.userId())).count()).isEqualTo(1);
 
         withdraw(d, 204);

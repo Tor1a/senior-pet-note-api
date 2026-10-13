@@ -8,6 +8,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 
 /**
@@ -35,6 +36,18 @@ public class Pet {
     @Column(name = "birth_year")
     private Short birthYear;
 
+    /** first_time | senior | null(선택 안 함). 서비스는 이 값으로 판단하지 않고 화면 노출만 정한다. */
+    @Column(name = "profile_type", columnDefinition = "text")
+    private String profileType;
+
+    /** 정확한 생일(달력 날짜). 있으면 연도가 birthYear 와 같다. */
+    @Column(name = "birth_date")
+    private LocalDate birthDate;
+
+    /** 입양일(달력 날짜) */
+    @Column(name = "adopted_on")
+    private LocalDate adoptedOn;
+
     /** 질환(자유 입력) */
     @Column(columnDefinition = "text")
     private String conditions;
@@ -53,22 +66,30 @@ public class Pet {
         // JPA 용
     }
 
-    public Pet(UUID userId, String name, String species, Short birthYear, String conditions) {
+    public Pet(UUID userId, String name, String species, Short birthYear, String conditions,
+               String profileType, LocalDate birthDate, LocalDate adoptedOn) {
         this.userId = userId;
         this.name = name;
         this.species = species;
         this.birthYear = birthYear;
         this.conditions = conditions;
+        this.profileType = profileType;
+        this.birthDate = birthDate;
+        this.adoptedOn = adoptedOn;
         this.createdAt = Instant.now();
         this.updatedAt = this.createdAt;
     }
 
     /** PUT /api/pets/{id} — 사진과 소유자는 바꾸지 않는다. */
-    public void update(String name, String species, Short birthYear, String conditions) {
+    public void update(String name, String species, Short birthYear, String conditions,
+                       String profileType, LocalDate birthDate, LocalDate adoptedOn) {
         this.name = name;
         this.species = species;
         this.birthYear = birthYear;
         this.conditions = conditions;
+        this.profileType = profileType;
+        this.birthDate = birthDate;
+        this.adoptedOn = adoptedOn;
     }
 
     /** 사진 경로 교체·삭제(null). PetService 의 사진 메서드에서만 호출한다. */
@@ -99,6 +120,18 @@ public class Pet {
 
     public Short getBirthYear() {
         return birthYear;
+    }
+
+    public String getProfileType() {
+        return profileType;
+    }
+
+    public LocalDate getBirthDate() {
+        return birthDate;
+    }
+
+    public LocalDate getAdoptedOn() {
+        return adoptedOn;
     }
 
     public String getConditions() {

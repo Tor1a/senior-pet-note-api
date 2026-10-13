@@ -36,6 +36,7 @@ senior-pet-note-api/
    src/main/resources/db/migration/V3__user_token_version.sql   users.token_version (비밀번호 변경 시 토큰 무효화)
    src/main/resources/db/migration/V4__todos.sql   내 할 일 일정(todos, todo_dispatches)
    src/main/resources/db/migration/V5__daily_log_routine.sql   일일 기록에 산책·배변 횟수(walk_count, poop_count) 추가
+   src/main/resources/db/migration/V6__pet_profile.sql   반려동물 유형·생일·입양일(profile_type, birth_date, adopted_on) 추가
 ```
 
 ## 실행 방법
@@ -166,9 +167,9 @@ IntelliJ 에서는 실행 구성의 Environment variables 에 `DB_PASSWORD`, `JW
 | 메서드 | 경로 | 요청 | 성공 응답 |
 |--------|------|------|-----------|
 | GET | `/api/pets` | - | 200 `[Pet]` (본인 것만, MVP 0~1개) |
-| POST | `/api/pets` | `{"name"(1~30자), "species"("dog"\|"cat"), "birthYear"?(1980~2100), "conditions"?(200자)}` | 201 `Pet` (2마리째 409 `PET_LIMIT_REACHED`) |
+| POST | `/api/pets` | `{"name"(1~30자), "species"("dog"\|"cat"), "birthYear"?(1980~2100), "conditions"?(200자), "profileType"?("first_time"\|"senior"), "birthDate"?("YYYY-MM-DD"), "adoptedOn"?("YYYY-MM-DD")}` | 201 `Pet` (2마리째 409 `PET_LIMIT_REACHED`) |
 | GET | `/api/pets/{id}` | - | 200 `Pet` |
-| PUT | `/api/pets/{id}` | POST 와 같음 | 200 `Pet` |
+| PUT | `/api/pets/{id}` | POST 와 같음. 단 `profileType`·`birthDate`·`adoptedOn` 은 생략 = 기존 값 유지, 명시적 null = 지움 | 200 `Pet` |
 | PUT | `/api/pets/{id}/photo` | multipart, 필드명 `file`, jpeg/png/webp, 5MB 이하 | 200 `Pet` (형식 오류 400 `INVALID_FILE`, 초과 413 `FILE_TOO_LARGE`) |
 | GET | `/api/pets/{id}/photo` | - | 200 이미지 바이너리(Content-Type 포함). 사진 없으면 404 |
 | DELETE | `/api/pets/{id}/photo` | - | 204 (사진이 없어도 204) |
@@ -184,7 +185,7 @@ IntelliJ 에서는 실행 구성의 Environment variables 에 `DB_PASSWORD`, `JW
 | GET | `/api/pets/{petId}/daily-logs?from&to` | 생략 가능(기본 30일, 최대 90일) | 200 `{petId, from, to, recordDate, medicationBasis, days[{recordDate, dailyLog\|null, medication{scheduledCount, takenCount}}]}` (기간 오류 400 `INVALID_DATE_RANGE`). 계약서: `docs/api-history.md` |
 | POST | `/api/events` | `{"name":"today_opened"\|"med_checked"\|"daily_log_saved", "props"?:{...}}` | 202 본문 없음 (그 외 이름 400) |
 
-- `Pet` = `{id, name, species, birthYear, conditions, hasPhoto, createdAt, updatedAt}` (사진 경로는 노출하지 않음)
+- `Pet` = `{id, name, species, birthYear, conditions, hasPhoto, profileType, birthDate, adoptedOn, createdAt, updatedAt}` (사진 경로는 노출하지 않음). 세 새 필드는 항상 존재하며 없으면 null. 날짜는 달력 날짜(`app.zone`, 새벽 4시 규칙 무관), 미래·존재하지 않는 날짜·1980 이전·입양일<생일·생일 연도≠birthYear 는 400. 계약서: `docs/api-pet-profile.md`. 구현은 `common/PatchTextInput`
 - `Medication` = `{id, petId, name, doseText, times:["08:00"], active}` — times 는 오름차순으로 저장·응답
 - `DailyLog` = `{id, petId, recordDate, foodLevel, waterLevel, waterMl, weightKg, symptoms, symptomsNone, symptomOther, memo, walkCount, poopCount, updatedAt}` — walkCount·poopCount 는 0~20 정수 또는 null(루틴 기록, `docs/api-routine.md`). PUT 에서 이 두 필드만 **생략 = 기존 값 유지, 명시적 null = 지움**(구버전 호환; 나머지 8필드는 전체 교체). 구현은 `dailylog/RoutineCountInput`(Jackson 에서 생략/null 구분)
 - **기록 날짜(새벽 4시 규칙)**: `recorddate/RecordDateCalculator` 한 곳에서만 계산한다. 서비스 시간대(`app.zone`, 기본 Asia/Seoul) 기준 00:00~03:59 는 전날, 04:00 부터 당일.
@@ -310,6 +311,7 @@ Supabase RLS 가 없어졌으므로 **API 계층이 유일한 방어선**이다.
 - `V3__user_token_version.sql` — `users.token_version integer not null default 0`(비밀번호 변경 시 +1, JWT `ver` 와 비교)
 - `V4__todos.sql` — 내 할 일 일정
 - `V5__daily_log_routine.sql` — 일일 기록 산책·배변 횟수(nullable, CHECK 0~20)
+- `V6__pet_profile.sql` — `pets.profile_type`(first_time|senior), `birth_date`, `adopted_on`(모두 nullable, 1980-01-01 이상, 입양일 ≥ 생일, 생일 연도 = birth_year)
   - `todos`: 보호자가 입력한 할 일. `(pet_id, user_id)` → `pets (id, user_id)` 복합 FK(cascade), `unique (id, user_id)`, 제목 `char_length(btrim(title)) between 1 and 40`·메모 200자·병원 메모 500자 CHECK, `due_time time`, `completed_at`(null = 미완료)
   - `todo_dispatches`: 발송 기록(중복 방지 겸 감사 로그). `unique (todo_id, kind, due_date)` = `todo_dispatches_once_per_slot`, `kind` day_before|due_day, `status` claimed|sent|failed|skipped_done|no_device. 보관 기간 무기한(MVP)
 - `V2__medication_reminders_and_device_tokens.sql` — 투약 알림
@@ -340,8 +342,9 @@ Supabase RLS 가 없어졌으므로 **API 계층이 유일한 방어선**이다.
 
 ## 테스트
 
-- 위치: `src/test/java/...` (총 363개) — `AuthApiTest`(회원가입→로그인→/api/me, 잘못된·위조 토큰 401, 중복 이메일 409, 400 검증, CORS),
+- 위치: `src/test/java/...` (총 388개) — `AuthApiTest`(회원가입→로그인→/api/me, 잘못된·위조 토큰 401, 중복 이메일 409, 400 검증, CORS),
   `PetOwnershipTest`(다른 사용자 pet 404, 목록 격리, 본문 userId 무시, 1마리 제한 409),
+  `PetProfileApiTest`(유형·생일·입양일 왕복, PUT 생략=유지·null=지움, 연도만 바뀌면 생일 해제, 미래·2/30·1979·입양일<생일·연도 불일치 400, 03:59 달력 오늘 허용, DB CHECK),
   `PetPhotoApiTest`(사진 업로드·조회·교체 시 이전 파일 삭제·삭제, 형식 오류 400, 5MB 초과 413, pet 수정),
   `TodayApiTest`(새벽 4시 경계 03:59/04:00 에서 today·med-logs·daily-logs 가 같은 날짜, 409, 일정 밖 시각 400, upsert, INVALID_RECORD_DATE, 증상 규칙, 제안값·직전 체중),
   `HistoryApiTest`(기본 30일·오름차순, 04시 경계, 1/30/90일 200·91일 400, 잘못된 파라미터, 기록 없는 날 null, 투약 집계), `HistoryOwnershipTest`(남의 pet 404, 데이터 격리),

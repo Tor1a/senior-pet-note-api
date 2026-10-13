@@ -1,8 +1,14 @@
 package com.oraegyeot.seniorpet.pet;
 
 import com.oraegyeot.seniorpet.common.ApiException;
+import com.oraegyeot.seniorpet.common.AppProperties;
+import com.oraegyeot.seniorpet.common.PatchTextInput;
 import com.oraegyeot.seniorpet.pet.PetDtos.CreatePetRequest;
 import jakarta.persistence.EntityManager;
+import java.time.Clock;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -21,12 +27,18 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class PetService {
 
+    private static final LocalDate MIN_DATE = LocalDate.of(1980, 1, 1);
+
     private final PetRepository petRepository;
     private final EntityManager em;
+    private final Clock clock;
+    private final ZoneId zone;
 
-    public PetService(PetRepository petRepository, EntityManager em) {
+    public PetService(PetRepository petRepository, EntityManager em, Clock clock, AppProperties props) {
         this.petRepository = petRepository;
         this.em = em;
+        this.clock = clock;
+        this.zone = props.zoneId();
     }
 
     @Transactional(readOnly = true)
@@ -47,7 +59,9 @@ public class PetService {
         if (petRepository.existsByUserId(userId)) {
             throw petLimit();
         }
-        Pet pet = new Pet(userId, req.name().trim(), req.species(), req.birthYear(), blankToNull(req.conditions()));
+        Profile profile = resolveProfile(req, null);
+        Pet pet = new Pet(userId, req.name().trim(), req.species(), profile.birthYear(), blankToNull(req.conditions()),
+                profile.profileType(), profile.birthDate(), profile.adoptedOn());
         try {
             return saveAndRefresh(pet);
         } catch (DataIntegrityViolationException e) {
@@ -58,8 +72,78 @@ public class PetService {
     @Transactional
     public Pet update(UUID userId, UUID petId, CreatePetRequest req) {
         Pet pet = getOwned(userId, petId);
-        pet.update(req.name().trim(), req.species(), req.birthYear(), blankToNull(req.conditions()));
+        Profile profile = resolveProfile(req, pet);
+        pet.update(req.name().trim(), req.species(), profile.birthYear(), blankToNull(req.conditions()),
+                profile.profileType(), profile.birthDate(), profile.adoptedOn());
         return saveAndRefresh(pet);
+    }
+
+    private record Profile(Short birthYear, String profileType, LocalDate birthDate, LocalDate adoptedOn) {
+    }
+
+    /**
+     * 유형·생일·입양일 결정. current 가 null(생성)이면 생략 = null, 있으면(PUT) 생략 = 기존 값 유지.
+     * 날짜는 달력 날짜(app.zone)이며 기록 날짜(새벽 4시 규칙)와 무관하다. 값은 로그에 남기지 않는다.
+     */
+    private Profile resolveProfile(CreatePetRequest req, Pet current) {
+        String type = PatchTextInput.resolve(req.profileType(), current == null ? null : current.getProfileType());
+        if (type != null && !type.equals("first_time") && !type.equals("senior")) {
+            throw ApiException.validation("profileType: first_time 또는 senior 이어야 합니다.");
+        }
+        Short birthYear = req.birthYear();
+
+        LocalDate birthDate;
+        if (req.birthDate() == null) {
+            birthDate = current == null ? null : current.getBirthDate();
+            // 옛 클라이언트가 연도만 바꾼 경우: 저장된 생일 날짜와 모순되므로 날짜를 지운다
+            if (birthDate != null && (birthYear == null || birthYear != birthDate.getYear())) {
+                birthDate = null;
+            }
+        } else {
+            birthDate = parseDate("birthDate", req.birthDate().value());
+            if (birthDate != null) {
+                checkRange("birthDate", birthDate);
+                if (birthYear != null && birthYear != birthDate.getYear()) {
+                    throw ApiException.validation("birthDate: 생일의 연도가 birthYear 와 같아야 합니다.");
+                }
+                birthYear = (short) birthDate.getYear();
+            }
+        }
+
+        LocalDate adoptedOn;
+        if (req.adoptedOn() == null) {
+            adoptedOn = current == null ? null : current.getAdoptedOn();
+        } else {
+            adoptedOn = parseDate("adoptedOn", req.adoptedOn().value());
+            if (adoptedOn != null) {
+                checkRange("adoptedOn", adoptedOn);
+            }
+        }
+        if (birthDate != null && adoptedOn != null && adoptedOn.isBefore(birthDate)) {
+            throw ApiException.validation("adoptedOn: 입양일은 생일보다 빠를 수 없습니다.");
+        }
+        return new Profile(birthYear, type, birthDate, adoptedOn);
+    }
+
+    private static LocalDate parseDate(String field, String text) {
+        if (text == null) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(text); // ISO yyyy-MM-dd, 2/30 같은 날짜는 예외
+        } catch (DateTimeParseException e) {
+            throw ApiException.validation(field + ": 존재하는 날짜를 YYYY-MM-DD 형식으로 입력하세요.");
+        }
+    }
+
+    /** 1980-01-01 이상, 오늘(app.zone 달력 날짜) 이하. */
+    private void checkRange(String field, LocalDate date) {
+        if (date.isBefore(MIN_DATE)) {
+            throw ApiException.validation(field + ": 1980-01-01 이후 날짜여야 합니다.");
+        }
+        if (date.isAfter(clock.instant().atZone(zone).toLocalDate())) {
+            throw ApiException.validation(field + ": 미래 날짜는 입력할 수 없습니다.");
+        }
     }
 
     /** 사진 경로 교체 결과. oldPath 는 호출한 쪽이 DB 반영 뒤 파일을 지우는 데 쓴다. */

@@ -11,6 +11,7 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityNotFoundException;
@@ -29,6 +30,7 @@ public class DailyLogService {
 
     /** 동시 요청 충돌 시 재시도 상한(최초 시도 제외) */
     private static final int MAX_RETRIES = 3;
+    private static final BigDecimal MAX_ROUTINE_COUNT = new BigDecimal("20");
     private static final BigDecimal MAX_WEIGHT = new BigDecimal("200");
 
     private final DailyLogRepository dailyLogRepository;
@@ -48,7 +50,17 @@ public class DailyLogService {
 
     /** 검증을 마친 저장 값 */
     private record Values(Short foodLevel, Short waterLevel, Integer waterMl, BigDecimal weightKg,
-                          List<String> symptoms, boolean symptomsNone, String symptomOther, String memo) {
+                          List<String> symptoms, boolean symptomsNone, String symptomOther, String memo,
+                          RoutineChange walk, RoutineChange poop) {
+    }
+
+    /** 루틴 값 변경 지시. present=false 면 요청에서 생략한 것이라 기존 값을 유지하고, true 면 value(null = 지움)로 바꾼다. */
+    private record RoutineChange(boolean present, Short value) {
+        static final RoutineChange KEEP = new RoutineChange(false, null);
+
+        Short apply(Short current) {
+            return present ? value : current;
+        }
     }
 
     public DailyLog upsert(UUID userId, UUID petId, String recordDateText, DailyLogRequest req) {
@@ -81,6 +93,8 @@ public class DailyLogService {
                 .orElseGet(() -> new DailyLog(userId, petId, recordDate, recordDates.now()));
         log.replace(v.foodLevel(), v.waterLevel(), v.waterMl(), v.weightKg(), v.symptoms(),
                 v.symptomsNone(), v.symptomOther(), v.memo(), recordDates.now());
+        // 루틴 값만 "생략 = 유지"(구버전 클라이언트 호환). 위 8개 필드는 기존대로 전체 교체.
+        log.replaceRoutine(v.walk().apply(log.getWalkCount()), v.poop().apply(log.getPoopCount()));
         dailyLogRepository.saveAndFlush(log);
         // updated_at 은 DB 트리거(set_updated_at)가 now() 로 덮어쓴다. 응답이 저장된 값과 같도록 다시 읽는다.
         em.refresh(log);
@@ -119,7 +133,24 @@ public class DailyLogService {
             throw ApiException.validation("체중은 0kg 초과 200kg 미만이어야 합니다.");
         }
         return new Values(toShort(req.foodLevel()), toShort(req.waterLevel()), req.waterMl(), weight,
-                symptoms, none, other, req.memo());
+                symptoms, none, other, req.memo(),
+                routine(req.walkCount(), "산책 횟수"), routine(req.poopCount(), "배변 횟수"));
+    }
+
+    /** 생략(필드 null) = 유지, 명시적 null(CLEAR) = 지움, 값은 0~20 정수만 허용 */
+    private static RoutineChange routine(RoutineCountInput raw, String label) {
+        if (raw == null) {
+            return RoutineChange.KEEP;
+        }
+        if (raw.value() == null) {
+            return new RoutineChange(true, null);
+        }
+        BigDecimal n = raw.value();
+        if (n.stripTrailingZeros().scale() > 0 || n.compareTo(BigDecimal.ZERO) < 0
+                || n.compareTo(MAX_ROUTINE_COUNT) > 0) {
+            throw ApiException.validation(label + "는 0~20 사이의 정수여야 합니다.");
+        }
+        return new RoutineChange(true, n.shortValueExact());
     }
 
     private static Short toShort(Integer i) {

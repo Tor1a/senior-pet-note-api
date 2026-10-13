@@ -60,6 +60,12 @@ public class DailyLog {
     @Column(columnDefinition = "text")
     private String memo;
 
+    @Column(name = "walk_count")
+    private Short walkCount;
+
+    @Column(name = "poop_count")
+    private Short poopCount;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -92,6 +98,12 @@ public class DailyLog {
         this.symptomOther = symptomOther;
         this.memo = memo;
         this.updatedAt = now;
+    }
+
+    /** 루틴 기록(산책·배변 횟수) 교체. null = 안 적음. "생략 = 유지" 판단은 DailyLogService 가 한다. */
+    public void replaceRoutine(Short walkCount, Short poopCount) {
+        this.walkCount = walkCount;
+        this.poopCount = poopCount;
     }
 
     public UUID getId() {
@@ -140,6 +152,14 @@ public class DailyLog {
 
     public String getMemo() {
         return memo;
+    }
+
+    public Short getWalkCount() {
+        return walkCount;
+    }
+
+    public Short getPoopCount() {
+        return poopCount;
     }
 
     public Instant getUpdatedAt() {

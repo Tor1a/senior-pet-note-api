@@ -54,6 +54,8 @@
 
 `dailyLog` 안의 값 해석은 기존과 같다: `null` = 안 적음(0이나 "보통"으로 채우지 않는다), `symptomsNone=true` = 명시적 "특이사항 없음", `symptoms=[] && !symptomsNone` = 증상 칸을 안 적음. `weightKg` 는 number.
 
+`dailyLog` 의 산책·배변 횟수(`walkCount`, `poopCount`) 추가 필드는 `docs/api-routine.md`.
+
 ### 투약 집계의 한계 (화면에 "현재 등록된 약 기준이에요"로 알릴 것)
 DB 에 약 일정의 변경 이력이 없어서 과거 날짜의 예정 횟수는 **현재 일정으로 환산한 값**이다.
 - 삭제(비활성)한 약은 과거 날짜에서도 뺀다. 삭제한 약의 과거 예정·체크는 집계되지 않는다(현재 활성 약 기준).

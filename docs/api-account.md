@@ -42,7 +42,7 @@
 | 429 | `TOO_MANY_ATTEMPTS` | 3절 |
 | 500 | `INTERNAL_ERROR` | 삭제 도중 서버 오류. 전부 롤백되어 데이터 그대로 → "다시 시도" 안내 |
 
-삭제 범위(한 DB 트랜잭션, `users` 행 삭제 + `on delete cascade`): pets, medications, med_logs, daily_logs, events, medication_reminders, device_tokens, reminder_dispatches, todos, todo_dispatches. 커밋 뒤 사진 폴더(`<PHOTO_DIR>/<userId>/`)도 삭제한다. 사진 삭제가 실패해도 탈퇴는 성공(204)하고 서버 로그에 warn 만 남는다.
+삭제 범위(한 DB 트랜잭션, `users` 행 삭제 + `on delete cascade`): pets, medications, med_logs, daily_logs(체중·식사·물·증상·메모와 산책·배변 횟수 포함), events, medication_reminders, device_tokens, reminder_dispatches, todos, todo_dispatches. 커밋 뒤 사진 폴더(`<PHOTO_DIR>/<userId>/`)도 삭제한다. 사진 삭제가 실패해도 탈퇴는 성공(204)하고 서버 로그에 warn 만 남는다.
 
 ## 3. 속도 제한 (두 API 공통)
 

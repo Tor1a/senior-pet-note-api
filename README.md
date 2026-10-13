@@ -35,6 +35,7 @@ senior-pet-note-api/
    src/main/resources/db/migration/V2__medication_reminders_and_device_tokens.sql   투약 알림·기기 토큰
    src/main/resources/db/migration/V3__user_token_version.sql   users.token_version (비밀번호 변경 시 토큰 무효화)
    src/main/resources/db/migration/V4__todos.sql   내 할 일 일정(todos, todo_dispatches)
+   src/main/resources/db/migration/V5__daily_log_routine.sql   일일 기록에 산책·배변 횟수(walk_count, poop_count) 추가
 ```
 
 ## 실행 방법
@@ -178,14 +179,14 @@ IntelliJ 에서는 실행 구성의 Environment variables 에 `DB_PASSWORD`, `JW
 | GET | `/api/pets/{petId}/today` | - | 200 `{recordDate, cutoffNotice, doses[], dailyLog, suggestions, lastWeight}` |
 | POST | `/api/med-logs` | `{"medicationId","scheduledTime":"08:00"}` | 201 `{id, medicationId, recordDate, scheduledTime, takenAt}` (일정에 없는 시각 400, 중복 409 `ALREADY_CHECKED`) |
 | DELETE | `/api/med-logs/{id}` | - | 204 (체크 취소) |
-| PUT | `/api/pets/{petId}/daily-logs/{recordDate}` | `{foodLevel, waterLevel, waterMl, weightKg, symptoms, symptomsNone, symptomOther, memo}` | 200 `DailyLog` (날짜가 현재 기록 날짜와 다르면 400 `INVALID_RECORD_DATE`) |
+| PUT | `/api/pets/{petId}/daily-logs/{recordDate}` | `{foodLevel, waterLevel, waterMl, weightKg, symptoms, symptomsNone, symptomOther, memo, walkCount?, poopCount?}` | 200 `DailyLog` (날짜가 현재 기록 날짜와 다르면 400 `INVALID_RECORD_DATE`) |
 | DELETE | `/api/pets/{petId}/daily-logs/{recordDate}` | - | 204 (오늘 기록 삭제. 기록이 없어도 204. 날짜가 현재 기록 날짜와 다르면 400 `INVALID_RECORD_DATE`). 계약서: `docs/api-undo.md` |
 | GET | `/api/pets/{petId}/daily-logs?from&to` | 생략 가능(기본 30일, 최대 90일) | 200 `{petId, from, to, recordDate, medicationBasis, days[{recordDate, dailyLog\|null, medication{scheduledCount, takenCount}}]}` (기간 오류 400 `INVALID_DATE_RANGE`). 계약서: `docs/api-history.md` |
 | POST | `/api/events` | `{"name":"today_opened"\|"med_checked"\|"daily_log_saved", "props"?:{...}}` | 202 본문 없음 (그 외 이름 400) |
 
 - `Pet` = `{id, name, species, birthYear, conditions, hasPhoto, createdAt, updatedAt}` (사진 경로는 노출하지 않음)
 - `Medication` = `{id, petId, name, doseText, times:["08:00"], active}` — times 는 오름차순으로 저장·응답
-- `DailyLog` = `{id, petId, recordDate, foodLevel, waterLevel, waterMl, weightKg, symptoms, symptomsNone, symptomOther, memo, updatedAt}`
+- `DailyLog` = `{id, petId, recordDate, foodLevel, waterLevel, waterMl, weightKg, symptoms, symptomsNone, symptomOther, memo, walkCount, poopCount, updatedAt}` — walkCount·poopCount 는 0~20 정수 또는 null(루틴 기록, `docs/api-routine.md`). PUT 에서 이 두 필드만 **생략 = 기존 값 유지, 명시적 null = 지움**(구버전 호환; 나머지 8필드는 전체 교체). 구현은 `dailylog/RoutineCountInput`(Jackson 에서 생략/null 구분)
 - **기록 날짜(새벽 4시 규칙)**: `recorddate/RecordDateCalculator` 한 곳에서만 계산한다. 서비스 시간대(`app.zone`, 기본 Asia/Seoul) 기준 00:00~03:59 는 전날, 04:00 부터 당일.
   `java.time.Clock` 을 주입받으므로(`common/ClockConfig`) 테스트에서 시각을 고정한다(`MutableClock`). 기준을 바꾸려면 `CUTOFF` 상수만 고친다.
 - 투약 체크의 `recordDate`·`takenAt` 은 서버가 정한다(요청에 날짜 없음). 삭제(비활성)된 약으로 체크하면 404.
@@ -308,6 +309,7 @@ Supabase RLS 가 없어졌으므로 **API 계층이 유일한 방어선**이다.
 - 스키마: `src/main/resources/db/migration/V1__init_schema.sql` — users, pets, medications, med_logs, daily_logs, push_subscriptions, events
 - `V3__user_token_version.sql` — `users.token_version integer not null default 0`(비밀번호 변경 시 +1, JWT `ver` 와 비교)
 - `V4__todos.sql` — 내 할 일 일정
+- `V5__daily_log_routine.sql` — 일일 기록 산책·배변 횟수(nullable, CHECK 0~20)
   - `todos`: 보호자가 입력한 할 일. `(pet_id, user_id)` → `pets (id, user_id)` 복합 FK(cascade), `unique (id, user_id)`, 제목 `char_length(btrim(title)) between 1 and 40`·메모 200자·병원 메모 500자 CHECK, `due_time time`, `completed_at`(null = 미완료)
   - `todo_dispatches`: 발송 기록(중복 방지 겸 감사 로그). `unique (todo_id, kind, due_date)` = `todo_dispatches_once_per_slot`, `kind` day_before|due_day, `status` claimed|sent|failed|skipped_done|no_device. 보관 기간 무기한(MVP)
 - `V2__medication_reminders_and_device_tokens.sql` — 투약 알림
@@ -338,11 +340,12 @@ Supabase RLS 가 없어졌으므로 **API 계층이 유일한 방어선**이다.
 
 ## 테스트
 
-- 위치: `src/test/java/...` (총 347개) — `AuthApiTest`(회원가입→로그인→/api/me, 잘못된·위조 토큰 401, 중복 이메일 409, 400 검증, CORS),
+- 위치: `src/test/java/...` (총 363개) — `AuthApiTest`(회원가입→로그인→/api/me, 잘못된·위조 토큰 401, 중복 이메일 409, 400 검증, CORS),
   `PetOwnershipTest`(다른 사용자 pet 404, 목록 격리, 본문 userId 무시, 1마리 제한 409),
   `PetPhotoApiTest`(사진 업로드·조회·교체 시 이전 파일 삭제·삭제, 형식 오류 400, 5MB 초과 413, pet 수정),
   `TodayApiTest`(새벽 4시 경계 03:59/04:00 에서 today·med-logs·daily-logs 가 같은 날짜, 409, 일정 밖 시각 400, upsert, INVALID_RECORD_DATE, 증상 규칙, 제안값·직전 체중),
   `HistoryApiTest`(기본 30일·오름차순, 04시 경계, 1/30/90일 200·91일 400, 잘못된 파라미터, 기록 없는 날 null, 투약 집계), `HistoryOwnershipTest`(남의 pet 404, 데이터 격리),
+  `DailyLogRoutineApiTest`(산책·배변 횟수: 왕복, 0≠null, 생략=유지·명시 null=지움, 0~20 경계·21/-1/소수 400, 04시 경계, 복원 10필드, 삭제, 남의 pet 404, DB CHECK),
   `DailyLogDeleteApiTest`·`DailyLogDeleteZoneTest`(오늘 기록 삭제: today·history 반영·투약 체크 유지, 멱등, 04시 경계, 과거·미래·형식 오류 400, 소유권 404·401, 다른 날짜·사용자 무영향, 재저장, 동시 삭제, app.zone),
   `TodayOwnershipTest`(다른 사용자의 pet/medication/med-log/daily-log/photo 404), `EventApiTest`(허용 이름 202, 그 외 400),
   단위 테스트 `SuggestionServiceTest`(빈 데이터, 일부 항목, 1.5→2, 2.5→3, 7일 범위 밖·오늘 제외), `RecordDateCalculatorTest`(새벽 4시 규칙 + 알림 발송 시각 `slotInstant`·분 단위 회차)

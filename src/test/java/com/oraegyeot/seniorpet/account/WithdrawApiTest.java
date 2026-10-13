@@ -58,7 +58,7 @@ class WithdrawApiTest extends ApiTestSupport {
         setSeoulTime(2026, 10, 12, 8, 0);
         dispatcher.dispatchDue(); // reminder_dispatches 행 생성
         call(jsonPost("/api/med-logs", Map.of("medicationId", med, "scheduledTime", "08:00")), token, 201);
-        call(jsonPut("/api/pets/" + pet + "/daily-logs/2026-10-12", Map.of("foodLevel", 2, "memo", "잘 먹음")),
+        call(jsonPut("/api/pets/" + pet + "/daily-logs/2026-10-12", Map.of("foodLevel", 2, "memo", "잘 먹음", "walkCount", 2, "poopCount", 3)),
                 token, 200);
         // 할 일 + 발송 기록(todos, todo_dispatches 행 생성): 07:00 등록 → 당일 09:00 알림
         setSeoulTime(2026, 10, 12, 7, 0);
@@ -99,6 +99,8 @@ class WithdrawApiTest extends ApiTestSupport {
         for (String table : TABLES) {
             assertThat(count(table, d.userId())).as(table + " 탈퇴 전").isPositive();
         }
+        assertThat(jdbc.sql("select count(*) from daily_logs where user_id = :u and walk_count = 2 and poop_count = 3")
+                .param("u", d.userId()).query(Long.class).single()).as("루틴 값이 있는 일일 기록").isEqualTo(1);
         assertThat(Files.list(photoFolder(d.userId())).count()).isEqualTo(1);
 
         withdraw(d, 204);

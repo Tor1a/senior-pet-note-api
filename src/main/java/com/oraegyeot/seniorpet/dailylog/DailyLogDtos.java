@@ -43,7 +43,11 @@ public final class DailyLogDtos {
             @Size(max = 30, message = "기타 증상은 30자 이하여야 합니다.")
             String symptomOther,
             @Size(max = 200, message = "메모는 200자 이하여야 합니다.")
-            String memo) {
+            String memo,
+            // 루틴 기록(docs/api-routine.md). 생략 = 기존 값 유지(필드 자체가 null), 명시적 null = 지움(RoutineCountInput.CLEAR).
+            // 구버전 클라이언트가 이 필드를 모르고 저장해도 값이 지워지지 않게 하려는 구분이다. 범위·정수 검증은 서비스에서 한다.
+            RoutineCountInput walkCount,
+            RoutineCountInput poopCount) {
     }
 
     /** DailyLog 응답 */
@@ -59,13 +63,16 @@ public final class DailyLogDtos {
             boolean symptomsNone,
             String symptomOther,
             String memo,
+            Integer walkCount,
+            Integer poopCount,
             Instant updatedAt) {
 
         public static DailyLogResponse from(DailyLog d) {
             return new DailyLogResponse(d.getId(), d.getPetId(), d.getRecordDate(),
                     toInt(d.getFoodLevel()), toInt(d.getWaterLevel()), d.getWaterMl(),
                     d.getWeightKg() == null ? null : d.getWeightKg().doubleValue(),
-                    d.getSymptoms(), d.isSymptomsNone(), d.getSymptomOther(), d.getMemo(), d.getUpdatedAt());
+                    d.getSymptoms(), d.isSymptomsNone(), d.getSymptomOther(), d.getMemo(),
+                    toInt(d.getWalkCount()), toInt(d.getPoopCount()), d.getUpdatedAt());
         }
 
         private static Integer toInt(Short s) {

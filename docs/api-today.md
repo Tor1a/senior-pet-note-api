@@ -93,6 +93,7 @@ Medication은 `{id, petId, name, doseText, times:["08:00"], active}`이다.
 
 - 오늘 기록 삭제(저장 되돌리기)는 `docs/api-undo.md`.
 - 산책·배변 횟수(`walkCount`, `poopCount`) 추가 필드는 `docs/api-routine.md`.
+- 응답의 `companion`(함께한 날·기록 N일째, first_time 일 때만 값)은 `docs/api-companion.md`.
 
 ## 6. 지표 이벤트
 `POST /api/events` `{name, props?}` → 202 (본문 없음)

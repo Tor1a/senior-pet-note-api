@@ -8,16 +8,19 @@ import com.oraegyeot.seniorpet.medication.Medication;
 import com.oraegyeot.seniorpet.medication.MedicationService;
 import com.oraegyeot.seniorpet.medlog.MedLog;
 import com.oraegyeot.seniorpet.medlog.MedLogRepository;
+import com.oraegyeot.seniorpet.pet.Pet;
 import com.oraegyeot.seniorpet.pet.PetService;
 import com.oraegyeot.seniorpet.recorddate.RecordDateCalculator;
 import com.oraegyeot.seniorpet.today.SuggestionService.DaySample;
 import com.oraegyeot.seniorpet.today.SuggestionService.Suggestions;
+import com.oraegyeot.seniorpet.today.TodayDtos.Companion;
 import com.oraegyeot.seniorpet.today.TodayDtos.Dose;
 import com.oraegyeot.seniorpet.today.TodayDtos.LastWeight;
 import com.oraegyeot.seniorpet.today.TodayDtos.SuggestionsResponse;
 import com.oraegyeot.seniorpet.today.TodayDtos.TodayResponse;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -51,7 +54,7 @@ public class TodayService {
 
     @Transactional(readOnly = true)
     public TodayResponse today(UUID userId, UUID petId) {
-        petService.getOwned(userId, petId); // 남의 pet = 404
+        Pet pet = petService.getOwned(userId, petId); // 남의 pet = 404
         LocalDate recordDate = recordDates.currentRecordDate();
 
         // 1) 투약 회차: 활성 약의 times 를 풀어서 시각 오름차순
@@ -93,7 +96,28 @@ public class TodayService {
                 .orElse(null);
 
         return new TodayResponse(recordDate, RecordDateCalculator.CUTOFF_NOTICE, doses, dailyLog,
-                suggestions, lastWeight);
+                suggestions, lastWeight, companion(pet, recordDate));
+    }
+
+    /**
+     * 함께한 날·기록 시작 경과일. first_time 일 때만 채우고 그 외(senior·null)는 null.
+     * 기준일은 recordDate(새벽 4시 규칙)이고 등록일도 RecordDateCalculator 로 기록 날짜로 바꾼다. 둘 다 당일 = 1일째.
+     */
+    private Companion companion(Pet pet, LocalDate recordDate) {
+        if (!"first_time".equals(pet.getProfileType())) {
+            return null;
+        }
+        Integer together = null;
+        LocalDate adoptedOn = pet.getAdoptedOn();
+        if (adoptedOn != null && !adoptedOn.isAfter(recordDate)) {
+            together = daysBetweenInclusive(adoptedOn, recordDate);
+        }
+        int recording = daysBetweenInclusive(recordDates.recordDateOf(pet.getCreatedAt()), recordDate);
+        return new Companion(together, Math.max(1, recording));
+    }
+
+    private static int daysBetweenInclusive(LocalDate from, LocalDate to) {
+        return (int) ChronoUnit.DAYS.between(from, to) + 1;
     }
 
     private static String slotKey(UUID medicationId, LocalTime time) {

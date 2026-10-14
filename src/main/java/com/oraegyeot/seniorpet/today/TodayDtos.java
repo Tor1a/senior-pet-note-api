@@ -18,7 +18,12 @@ public final class TodayDtos {
             List<Dose> doses,
             DailyLogResponse dailyLog,
             SuggestionsResponse suggestions,
-            LastWeight lastWeight) {
+            LastWeight lastWeight,
+            Companion companion) {
+    }
+
+    /** 함께한 날·기록 시작 경과일 (docs/api-companion.md). first_time 이 아니면 응답의 companion 은 null. */
+    public record Companion(Integer togetherDays, int recordingDays) {
     }
 
     /** 약 1회차. 체크 전이면 taken=false, medLogId/takenAt=null */

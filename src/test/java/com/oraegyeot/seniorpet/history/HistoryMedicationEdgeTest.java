@@ -97,7 +97,7 @@ class HistoryMedicationEdgeTest extends ApiTestSupport {
     }
 
     @Test
-    void 약_시각을_바꾸면_옛_시각_체크는_세지_않고_되돌리면_다시_센다() throws Exception {
+    void 약_시각을_바꿔도_바꾸기_전_날짜는_당시_시각_기준으로_센다() throws Exception {
         String t = newUserToken();
         String pet = createPet(t);
         setSeoulTime(2026, 10, 1, 12, 0);
@@ -108,7 +108,7 @@ class HistoryMedicationEdgeTest extends ApiTestSupport {
 
         call(jsonPut("/api/medications/" + a, Map.of("name", "A", "times", List.of("09:00"))), t, 200);
         JsonNode changed = history(t, pet, "?from=2026-10-02&to=2026-10-02");
-        assertDay(changed, "2026-10-02", 1, 0);
+        assertDay(changed, "2026-10-02", 1, 1); // 일정 이력: 10-03 에 바꿨으니 10-02 는 당시 08:00 기준
 
         call(jsonPut("/api/medications/" + a, Map.of("name", "A", "times", List.of("08:00"))), t, 200);
         assertDay(history(t, pet, "?from=2026-10-02&to=2026-10-02"), "2026-10-02", 1, 1);

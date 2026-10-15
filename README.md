@@ -37,6 +37,7 @@ senior-pet-note-api/
    src/main/resources/db/migration/V4__todos.sql   내 할 일 일정(todos, todo_dispatches)
    src/main/resources/db/migration/V5__daily_log_routine.sql   일일 기록에 산책·배변 횟수(walk_count, poop_count) 추가
    src/main/resources/db/migration/V6__pet_profile.sql   반려동물 유형·생일·입양일(profile_type, birth_date, adopted_on) 추가
+   src/main/resources/db/migration/V7__medication_schedule_history.sql   약 시각 변경 이력(medication_schedule_versions) + 기존 약 백필
 ```
 
 ## 실행 방법
@@ -312,6 +313,7 @@ Supabase RLS 가 없어졌으므로 **API 계층이 유일한 방어선**이다.
 - `V4__todos.sql` — 내 할 일 일정
 - `V5__daily_log_routine.sql` — 일일 기록 산책·배변 횟수(nullable, CHECK 0~20)
 - `V6__pet_profile.sql` — `pets.profile_type`(first_time|senior), `birth_date`, `adopted_on`(모두 nullable, 1980-01-01 이상, 입양일 ≥ 생일, 생일 연도 = birth_year)
+- `V7__medication_schedule_history.sql` — `medication_schedule_versions`(약 시각 변경 이력: 기록 날짜 범위, 약당 열린 버전 1개, (medication_id, user_id) 복합 FK, 기존 약 백필. 백필 SQL 은 Asia/Seoul·04:00 을 복제하므로 운영 `APP_ZONE` 이 기본값이 아니면 배포 전 중단)
   - `todos`: 보호자가 입력한 할 일. `(pet_id, user_id)` → `pets (id, user_id)` 복합 FK(cascade), `unique (id, user_id)`, 제목 `char_length(btrim(title)) between 1 and 40`·메모 200자·병원 메모 500자 CHECK, `due_time time`, `completed_at`(null = 미완료)
   - `todo_dispatches`: 발송 기록(중복 방지 겸 감사 로그). `unique (todo_id, kind, due_date)` = `todo_dispatches_once_per_slot`, `kind` day_before|due_day, `status` claimed|sent|failed|skipped_done|no_device. 보관 기간 무기한(MVP)
 - `V2__medication_reminders_and_device_tokens.sql` — 투약 알림
@@ -342,11 +344,12 @@ Supabase RLS 가 없어졌으므로 **API 계층이 유일한 방어선**이다.
 
 ## 테스트
 
-- 위치: `src/test/java/...` (총 402개) — `AuthApiTest`(회원가입→로그인→/api/me, 잘못된·위조 토큰 401, 중복 이메일 409, 400 검증, CORS),
+- 위치: `src/test/java/...` (총 425개) — `AuthApiTest`(회원가입→로그인→/api/me, 잘못된·위조 토큰 401, 중복 이메일 409, 400 검증, CORS),
   `PetOwnershipTest`(다른 사용자 pet 404, 목록 격리, 본문 userId 무시, 1마리 제한 409),
   `CompanionApiTest`(companion: first_time/senior/null, 입양일 유무, 첫 기록일 기준·기록 없음 null·기록 삭제 후 경계, 03:59→04:00 전환, 첫 기록 당일 1일째, 연말·연초·윤년, 미래 입양일 null, 남의 pet 404),
   `PetProfileApiTest`(유형·생일·입양일 왕복, PUT 생략=유지·null=지움, 연도만 바뀌면 생일 해제, 미래·2/30·1979·입양일<생일·연도 불일치 400, 03:59 달력 오늘 허용, DB CHECK),
   `PetPhotoApiTest`(사진 업로드·조회·교체 시 이전 파일 삭제·삭제, 형식 오류 400, 5MB 초과 413, pet 수정),
+  `MedicationScheduleHistoryTest`·`MedicationScheduleSchemaTest`·`MedicationScheduleBackfillTest`·`HistoryQueryCountTest`(약 일정 변경 이력: 횟수 감소·시각 변경·삭제·같은 날 여러 번 변경·04시 경계·동시 수정·소유자 격리·탈퇴/반려동물 삭제 연쇄·V7 제약·백필 SQL 과 설정(Asia/Seoul, 04:00) 대조·쿼리 수 5회),
   `TodayApiTest`(새벽 4시 경계 03:59/04:00 에서 today·med-logs·daily-logs 가 같은 날짜, 409, 일정 밖 시각 400, upsert, INVALID_RECORD_DATE, 증상 규칙, 제안값·직전 체중),
   `HistoryApiTest`(기본 30일·오름차순, 04시 경계, 1/30/90일 200·91일 400, 잘못된 파라미터, 기록 없는 날 null, 투약 집계), `HistoryOwnershipTest`(남의 pet 404, 데이터 격리),
   `DailyLogRoutineApiTest`(산책·배변 횟수: 왕복, 0≠null, 생략=유지·명시 null=지움, 0~20 경계·21/-1/소수 400, 04시 경계, 복원 10필드, 삭제, 남의 pet 404, DB CHECK),

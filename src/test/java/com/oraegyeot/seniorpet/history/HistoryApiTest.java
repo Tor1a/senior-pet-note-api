@@ -177,7 +177,7 @@ class HistoryApiTest extends ApiTestSupport {
     }
 
     @Test
-    void 투약_집계는_활성약_시각수와_체크수() throws Exception {
+    void 투약_집계는_그날_유효한_일정의_시각수와_체크수() throws Exception {
         String t = newUserToken();
         String pet = createPet(t);
 
@@ -202,15 +202,16 @@ class HistoryApiTest extends ApiTestSupport {
         assertCount(day(res, "2026-10-06"), 3, 1);
         assertCount(day(res, "2026-10-08"), 3, 0);
 
-        // 약 시각 변경: 옛 시각(08:00) 체크는 세지 않는다 (taken <= scheduled)
+        // 약 시각 변경(10-08): 바꾸기 전 날짜는 당시 일정(08:00 체크 포함)으로 센다. 변경한 날(10-08)부터 새 시각
         call(jsonPut("/api/medications/" + medA, Map.of("name", "아조딜", "times", List.of("09:00", "20:00"))), t, 200);
-        assertCount(day(history(t, pet, "?from=2026-10-05&to=2026-10-05", 200), "2026-10-05"), 3, 1);
+        assertCount(day(history(t, pet, "?from=2026-10-05&to=2026-10-05", 200), "2026-10-05"), 3, 2);
 
-        // 삭제(비활성)한 약은 과거에도 포함하지 않는다
+        // 삭제(비활성)한 약도 삭제 전 날짜에는 포함하고, 삭제한 날(10-08)부터는 뺀다
         call(delete("/api/medications/" + medB), t, 204);
-        JsonNode afterDelete = history(t, pet, "?from=2026-10-05&to=2026-10-06", 200);
-        assertCount(day(afterDelete, "2026-10-05"), 2, 1);
-        assertCount(day(afterDelete, "2026-10-06"), 2, 0);
+        JsonNode afterDelete = history(t, pet, "?from=2026-10-05&to=2026-10-08", 200);
+        assertCount(day(afterDelete, "2026-10-05"), 3, 2);
+        assertCount(day(afterDelete, "2026-10-06"), 3, 1);
+        assertCount(day(afterDelete, "2026-10-08"), 2, 0);
     }
 
     @Test

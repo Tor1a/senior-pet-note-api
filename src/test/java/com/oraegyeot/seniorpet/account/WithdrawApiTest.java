@@ -23,10 +23,10 @@ import org.springframework.mock.web.MockMultipartFile;
 /** POST /api/me/withdraw (docs/api-account.md 2절). 알림 테스트처럼 임시 사용자를 쓰고 끝나면 지운다. */
 class WithdrawApiTest extends ApiTestSupport {
 
-    /** user_id 컬럼으로 직접 지워지는 테이블 전부(V1·V2·V4·V7 의 users 자식) */
+    /** user_id 컬럼으로 직접 지워지는 테이블 전부(V1·V2·V4·V7·V8 의 users 자식) */
     private static final List<String> TABLES = List.of("pets", "medications", "med_logs", "daily_logs", "events",
             "medication_reminders", "device_tokens", "reminder_dispatches", "todos", "todo_dispatches",
-            "medication_schedule_versions");
+            "medication_schedule_versions", "visit_questions");
 
     private static final byte[] JPEG = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0, 1, 2, 3, 4};
 
@@ -68,6 +68,8 @@ class WithdrawApiTest extends ApiTestSupport {
         call(jsonPost("/api/pets/" + pet + "/todos", Map.of("title", "접종", "dueDate", "2026-10-12")), token, 201);
         setSeoulTime(2026, 10, 12, 9, 0);
         todoDispatcher.dispatchDue();
+        // 진료 질문(visit_questions 행 생성)
+        call(jsonPost("/api/pets/" + pet + "/visit-questions", Map.of("text", "약을 식전에 줘도 되나요")), token, 201);
         mvc.perform(multipart("/api/pets/" + pet + "/photo")
                         .file(new MockMultipartFile("file", "p.bin", "image/jpeg", JPEG))
                         .with(r -> {

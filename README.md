@@ -219,6 +219,18 @@ IntelliJ 에서는 실행 구성의 Environment variables 에 `DB_PASSWORD`, `JW
   계산은 `RecordDateCalculator.slotInstant` 한 곳에서만 한다. 반복 규칙은 알림에만 적용되고 "오늘" 화면은 그대로다(`docs/api-today.md` 변경 없음).
 - 클라이언트는 로그아웃 직전에 `DELETE /api/devices/{id}` 를 호출해야 한다(서버에 로그아웃 API 없음).
 
+### 진료 때 물어볼 것 API — 계약서: `docs/api-visit-questions.md` (클라이언트와 합의 대상)
+
+모든 API 로그인 필요. 남의/없는 리소스 404 `NOT_FOUND`. 새 오류 코드 `VISIT_QUESTION_LIMIT_REACHED`(409, 사용자당 30개 완료 포함). 서버는 글을 해석·추천하지 않고 로그·응답·푸시에 싣지 않는다.
+
+| 메서드 | 경로 | 요청 | 응답 |
+|---|---|---|---|
+| GET | `/api/pets/{petId}/visit-questions?status=open\|done\|all` | 생략 = `open` | 200 `{questions:[VisitQuestion]}` |
+| POST | `/api/pets/{petId}/visit-questions` | `{text}` (1~100자) | 201 |
+| PUT | `/api/visit-questions/{id}` | `{text}` (전체 교체) | 200 |
+| PUT | `/api/visit-questions/{id}/completion` | `{"completed": true\|false}` | 200 (멱등) |
+| DELETE | `/api/visit-questions/{id}` | - | 204 |
+
 ### 내 할 일 일정 API — 계약서: `docs/api-todos.md` (클라이언트와 합의 대상)
 
 모든 API 로그인 필요. 남의 리소스·없는 리소스는 404 `NOT_FOUND`. 새 오류 코드는 `TODO_LIMIT_REACHED` 하나. 서비스는 일정·주기를 정하거나 추천하지 않는다(보호자 입력값만 저장·알림).
@@ -311,6 +323,7 @@ Supabase RLS 가 없어졌으므로 **API 계층이 유일한 방어선**이다.
 - 스키마: `src/main/resources/db/migration/V1__init_schema.sql` — users, pets, medications, med_logs, daily_logs, push_subscriptions, events
 - `V3__user_token_version.sql` — `users.token_version integer not null default 0`(비밀번호 변경 시 +1, JWT `ver` 와 비교)
 - `V4__todos.sql` — 내 할 일 일정
+- `V8__visit_questions.sql` — 진료 때 물어볼 것 메모(`visit_questions`: text 1~100자 CHECK, `completed_at`, (pet_id, user_id) 복합 FK cascade, 사용자당 30개는 API 에서 검사)
 - `V5__daily_log_routine.sql` — 일일 기록 산책·배변 횟수(nullable, CHECK 0~20)
 - `V6__pet_profile.sql` — `pets.profile_type`(first_time|senior), `birth_date`, `adopted_on`(모두 nullable, 1980-01-01 이상, 입양일 ≥ 생일, 생일 연도 = birth_year)
 - `V7__medication_schedule_history.sql` — `medication_schedule_versions`(약 시각 변경 이력: 기록 날짜 범위, 약당 열린 버전 1개, (medication_id, user_id) 복합 FK, 기존 약 백필. 백필 SQL 은 Asia/Seoul·04:00 을 복제하므로 운영 `APP_ZONE` 이 기본값이 아니면 배포 전 중단)

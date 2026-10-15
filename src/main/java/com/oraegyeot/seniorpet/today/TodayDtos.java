@@ -22,8 +22,8 @@ public final class TodayDtos {
             Companion companion) {
     }
 
-    /** 함께한 날·기록 시작 경과일 (docs/api-companion.md). first_time 이 아니면 응답의 companion 은 null. */
-    public record Companion(Integer togetherDays, int recordingDays) {
+    /** 함께한 날·기록 시작 경과일 (docs/api-companion.md). first_time 이 아니면 응답의 companion 은 null, 기록이 아직 없으면 recordingDays 는 null. */
+    public record Companion(Integer togetherDays, Integer recordingDays) {
     }
 
     /** 약 1회차. 체크 전이면 taken=false, medLogId/takenAt=null */

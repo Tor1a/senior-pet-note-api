@@ -177,7 +177,7 @@ IntelliJ 에서는 실행 구성의 Environment variables 에 `DB_PASSWORD`, `JW
 | POST | `/api/pets/{petId}/medications` | `{"name"(1~50자), "doseText"?(50자), "times":["08:00","20:00"](1~3개, HH:mm, 중복 불가)}` | 201 `Medication` |
 | PUT | `/api/medications/{id}` | POST 와 같음 | 200 `Medication` |
 | DELETE | `/api/medications/{id}` | - | 204 (비활성화. 과거 투약 기록은 남음) |
-| GET | `/api/pets/{petId}/today` | - | 200 `{recordDate, cutoffNotice, doses[], dailyLog, suggestions, lastWeight, companion}` (`companion` = first_time 일 때만 `{togetherDays, recordingDays}`, 그 외 null. 계약서: `docs/api-companion.md`) |
+| GET | `/api/pets/{petId}/today` | - | 200 `{recordDate, cutoffNotice, doses[], dailyLog, suggestions, lastWeight, companion}` (`companion` = first_time 일 때만 `{togetherDays, recordingDays}`(`recordingDays` 는 첫 기록일 기준, 기록이 없으면 null), 그 외 null. 계약서: `docs/api-companion.md`) |
 | POST | `/api/med-logs` | `{"medicationId","scheduledTime":"08:00"}` | 201 `{id, medicationId, recordDate, scheduledTime, takenAt}` (일정에 없는 시각 400, 중복 409 `ALREADY_CHECKED`) |
 | DELETE | `/api/med-logs/{id}` | - | 204 (체크 취소) |
 | PUT | `/api/pets/{petId}/daily-logs/{recordDate}` | `{foodLevel, waterLevel, waterMl, weightKg, symptoms, symptomsNone, symptomOther, memo, walkCount?, poopCount?}` | 200 `DailyLog` (날짜가 현재 기록 날짜와 다르면 400 `INVALID_RECORD_DATE`) |
@@ -342,9 +342,9 @@ Supabase RLS 가 없어졌으므로 **API 계층이 유일한 방어선**이다.
 
 ## 테스트
 
-- 위치: `src/test/java/...` (총 400개) — `AuthApiTest`(회원가입→로그인→/api/me, 잘못된·위조 토큰 401, 중복 이메일 409, 400 검증, CORS),
+- 위치: `src/test/java/...` (총 402개) — `AuthApiTest`(회원가입→로그인→/api/me, 잘못된·위조 토큰 401, 중복 이메일 409, 400 검증, CORS),
   `PetOwnershipTest`(다른 사용자 pet 404, 목록 격리, 본문 userId 무시, 1마리 제한 409),
-  `CompanionApiTest`(companion: first_time/senior/null, 입양일 유무, 03:59→04:00 전환, 등록 당일 1일째, 서울-UTC 날짜 경계, 연말·연초·윤년, 미래 입양일 null, 남의 pet 404),
+  `CompanionApiTest`(companion: first_time/senior/null, 입양일 유무, 첫 기록일 기준·기록 없음 null·기록 삭제 후 경계, 03:59→04:00 전환, 첫 기록 당일 1일째, 연말·연초·윤년, 미래 입양일 null, 남의 pet 404),
   `PetProfileApiTest`(유형·생일·입양일 왕복, PUT 생략=유지·null=지움, 연도만 바뀌면 생일 해제, 미래·2/30·1979·입양일<생일·연도 불일치 400, 03:59 달력 오늘 허용, DB CHECK),
   `PetPhotoApiTest`(사진 업로드·조회·교체 시 이전 파일 삭제·삭제, 형식 오류 400, 5MB 초과 413, pet 수정),
   `TodayApiTest`(새벽 4시 경계 03:59/04:00 에서 today·med-logs·daily-logs 가 같은 날짜, 409, 일정 밖 시각 400, upsert, INVALID_RECORD_DATE, 증상 규칙, 제안값·직전 체중),

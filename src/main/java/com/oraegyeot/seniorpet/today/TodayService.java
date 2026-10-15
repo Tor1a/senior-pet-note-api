@@ -101,7 +101,8 @@ public class TodayService {
 
     /**
      * 함께한 날·기록 시작 경과일. first_time 일 때만 채우고 그 외(senior·null)는 null.
-     * 기준일은 recordDate(새벽 4시 규칙)이고 등록일도 RecordDateCalculator 로 기록 날짜로 바꾼다. 둘 다 당일 = 1일째.
+     * 기준일은 recordDate(새벽 4시 규칙). 기록 시작일은 등록일이 아니라 첫 일일 기록(daily_log)의 기록 날짜이고,
+     * 기록이 없으면 recordingDays 는 null. 둘 다 당일 = 1일째.
      */
     private Companion companion(Pet pet, LocalDate recordDate) {
         if (!"first_time".equals(pet.getProfileType())) {
@@ -112,8 +113,10 @@ public class TodayService {
         if (adoptedOn != null && !adoptedOn.isAfter(recordDate)) {
             together = daysBetweenInclusive(adoptedOn, recordDate);
         }
-        int recording = daysBetweenInclusive(recordDates.recordDateOf(pet.getCreatedAt()), recordDate);
-        return new Companion(together, Math.max(1, recording));
+        Integer recording = dailyLogRepository.findFirstRecordDate(pet.getId(), pet.getUserId())
+                .map(first -> Math.max(1, daysBetweenInclusive(first, recordDate)))
+                .orElse(null);
+        return new Companion(together, recording);
     }
 
     private static int daysBetweenInclusive(LocalDate from, LocalDate to) {
